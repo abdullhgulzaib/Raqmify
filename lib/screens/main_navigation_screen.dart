@@ -121,12 +121,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       onTap: () async {
         HapticFeedback.lightImpact();
 
-        final verified = await SecurityVerificationModal.verify(
-          context,
-          title: isSplitTab ? 'Authorize Split Bill' : 'Authorize New Expense',
-          subtitle: 'Scan fingerprint or enter PIN to continue',
-        );
-        if (!verified || !mounted) return;
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+        // If Privacy Vault is locked/masked, verify once to unlock
+        if (authProvider.isPrivacyMasked && authProvider.hasPin) {
+          final verified = await SecurityVerificationModal.verify(
+            context,
+            title: isSplitTab ? 'Authorize Split Bill' : 'Authorize New Expense',
+            subtitle: 'Scan fingerprint or enter PIN to continue',
+          );
+          if (!verified || !mounted) return;
+          // Unlock privacy vault so subsequent expense additions don't prompt PIN repeatedly
+          authProvider.togglePrivacyMask();
+        }
 
         if (isSplitTab) {
           CreateSplitExpenseBottomSheet.show(context);
