@@ -4,10 +4,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/constants/app_colors.dart';
 import '../providers/auth_provider.dart';
+import 'auth/quick_pin_unlock_screen.dart';
 import 'auth/setup_pin_screen.dart';
 import 'auth/welcome_screen.dart';
 import 'auth/widgets/emerald_wave_header.dart';
-import 'main_navigation_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -50,16 +50,22 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateToNext() async {
-    await Future.delayed(const Duration(milliseconds: 2000));
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isInitialized) {
+      await authProvider.init();
+    }
+
+    await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted) return;
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final Widget destination;
 
     if (authProvider.isAuthenticated) {
-      destination = authProvider.hasPin
-          ? const MainNavigationScreen()
-          : const SetupPinScreen();
+      if (!authProvider.hasPin) {
+        destination = const SetupPinScreen();
+      } else {
+        destination = const QuickPinUnlockScreen();
+      }
     } else {
       destination = const WelcomeScreen();
     }

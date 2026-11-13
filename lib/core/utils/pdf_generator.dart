@@ -1,23 +1,85 @@
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
 import '../../models/expense_model.dart';
+import '../logic/money.dart';
 import 'currency_formatter.dart';
 
 class PdfStatementGenerator {
+  /// Generates a monthly statement PDF with accurate daily average,
+  /// integer paisa precision, and Urdu/Arabic non-Latin font fallbacks (F4).
   static Future<Uint8List> generateMonthlyStatement({
     required String userName,
     required String userEmail,
     required List<ExpenseModel> expenses,
     required String periodName,
+    DateTime? statementPeriod,
+    pw.Font? customBaseFont,
+    pw.Font? customBoldFont,
+    List<pw.Font>? customFontFallback,
   }) async {
-    final pdf = pw.Document();
-
-    final totalSpend = expenses.fold(0.0, (sum, e) => sum + e.amount);
+    // 1. Calculate Period and Daily Average (F4)
+    final period = statementPeriod ?? DateTime.now();
     final now = DateTime.now();
-    final dailyAvg = totalSpend / (now.day > 0 ? now.day : 1);
+    final bool isCurrentMonth =
+        period.year == now.year && period.month == now.month;
+
+    final int daysInPeriod;
+    if (isCurrentMonth) {
+      daysInPeriod = now.day > 0 ? now.day : 1;
+    } else {
+      // Total days in that specific calendar month
+      daysInPeriod = DateTime(period.year, period.month + 1, 0).day;
+    }
+
+    // Money calculation (S7)
+    final totalSpendMoney = expenses.fold(
+      Money.zero(),
+      (sum, e) => sum + Money.parse(e.amount),
+    );
+    final dailyAvgPaisa = (totalSpendMoney.paisa / (daysInPeriod > 0 ? daysInPeriod : 1)).round();
+    final dailyAvgMoney = Money.fromPaisa(dailyAvgPaisa);
+
+    // 2. Load Fonts & Fallbacks (F4)
+    pw.Font baseFont;
+    pw.Font boldFont;
+    List<pw.Font> fontFallbacks = [];
+
+    if (customBaseFont != null) {
+      baseFont = customBaseFont;
+      boldFont = customBoldFont ?? customBaseFont;
+      fontFallbacks = customFontFallback ?? [];
+    } else {
+      try {
+        final outfitBytes = await rootBundle.load('assets/fonts/Outfit-Variable.ttf');
+        baseFont = pw.Font.ttf(outfitBytes);
+        boldFont = baseFont;
+      } catch (_) {
+        baseFont = pw.Font.helvetica();
+        boldFont = pw.Font.helveticaBold();
+      }
+
+      try {
+        final urduBytes = await rootBundle.load('assets/fonts/NotoSansArabic.ttf');
+        fontFallbacks.add(pw.Font.ttf(urduBytes));
+      } catch (_) {
+        try {
+          final urduBytes2 = await rootBundle.load('assets/fonts/NotoNastaliqUrdu.ttf');
+          fontFallbacks.add(pw.Font.ttf(urduBytes2));
+        } catch (_) {}
+      }
+    }
+
+    final pdfTheme = pw.ThemeData.withFont(
+      base: baseFont,
+      bold: boldFont,
+      fontFallback: fontFallbacks,
+    );
+
+    final pdf = pw.Document(theme: pdfTheme);
 
     pdf.addPage(
       pw.MultiPage(
@@ -83,7 +145,7 @@ class PdfStatementGenerator {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text('Account Holder: $userName',
-                            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                            style: const pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
                         pw.SizedBox(height: 3),
                         pw.Text('Email: $userEmail',
                             style: const pw.TextStyle(color: PdfColors.grey700, fontSize: 10)),
@@ -104,7 +166,7 @@ class PdfStatementGenerator {
                         crossAxisAlignment: pw.CrossAxisAlignment.end,
                         children: [
                           pw.Text(
-                            'Total Spend: ${CurrencyFormatter.format(totalSpend)}',
+                            'Total Spend: ${CurrencyFormatter.format(totalSpendMoney)}',
                             style: pw.TextStyle(
                               fontSize: 12,
                               fontWeight: pw.FontWeight.bold,
@@ -113,7 +175,7 @@ class PdfStatementGenerator {
                           ),
                           pw.SizedBox(height: 2),
                           pw.Text(
-                            'Daily Average: ${CurrencyFormatter.format(dailyAvg)}',
+                            'Daily Average: ${CurrencyFormatter.format(dailyAvgMoney)}',
                             style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey800),
                           ),
                           pw.SizedBox(height: 2),
@@ -223,12 +285,14 @@ class PdfStatementGenerator {
     required String userEmail,
     required List<ExpenseModel> expenses,
     required String periodName,
+    DateTime? statementPeriod,
   }) async {
     final pdfBytes = await generateMonthlyStatement(
       userName: userName,
       userEmail: userEmail,
       expenses: expenses,
       periodName: periodName,
+      statementPeriod: statementPeriod,
     );
 
     await Printing.layoutPdf(

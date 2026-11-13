@@ -8,14 +8,22 @@ class AppColors {
   static const Color mutedGold = Color(0xFFD4AF6B);
   static const Color offWhite = Color(0xFFF7F8F6);
   static const Color darkInk = Color(0xFF101817);
+  static const Color nearBlack = Color(0xFF101817);
 
   // Surface & Neutrals
   static const Color cardWhite = Colors.white;
   static const Color borderLight = Color(0xFFE5E7EB);
   static const Color borderSubtle = Color(0xFFEDF2F0);
-  static const Color textMuted = Color(0xFF6B7280);
+  static const Color borderCard = Color(0xFFE2EAE5);
+  static const Color textMuted = Color(0xFF61716D); // WCAG verified brand muted
+  static const Color textMutedSecondary = Color(0xFF6B7280);
   static const Color surfaceSubtle = Color(0xFFF0F4F2);
   static const Color lightEmerald = Color(0xFFE8F5F2);
+
+  // Dark Mode Surfaces
+  static const Color darkSurface = Color(0xFF101817);
+  static const Color darkCard = Color(0xFF182220);
+  static const Color darkBorder = Color(0xFF263330);
 
   // Semantic Status Colors
   static const Color successGreen = Color(0xFF10B981);

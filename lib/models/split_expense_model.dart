@@ -21,6 +21,30 @@ class SplitMemberShare {
     this.paymentMethod,
   });
 
+  SplitMemberShare copyWith({
+    String? userId,
+    String? name,
+    String? email,
+    double? amount,
+    double? percentage,
+    String? status,
+    String? proofTid,
+    String? proofImageUrl,
+    String? paymentMethod,
+  }) {
+    return SplitMemberShare(
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      amount: amount ?? this.amount,
+      percentage: percentage ?? this.percentage,
+      status: status ?? this.status,
+      proofTid: proofTid ?? this.proofTid,
+      proofImageUrl: proofImageUrl ?? this.proofImageUrl,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+    );
+  }
+
   factory SplitMemberShare.fromJson(Map<String, dynamic> json) {
     final proof = json['proof'] as Map<String, dynamic>?;
     return SplitMemberShare(
@@ -35,6 +59,41 @@ class SplitMemberShare {
       paymentMethod: proof?['paymentMethod'],
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'user': userId,
+      'name': name,
+      'email': email,
+      'amount': amount,
+      'percentage': percentage,
+      'status': status,
+      'proof': {
+        'transactionId': proofTid,
+        'imageUrl': proofImageUrl,
+        'paymentMethod': paymentMethod,
+      },
+    };
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SplitMemberShare &&
+          runtimeType == other.runtimeType &&
+          userId == other.userId &&
+          amount == other.amount &&
+          status == other.status &&
+          proofTid == other.proofTid &&
+          proofImageUrl == other.proofImageUrl;
+
+  @override
+  int get hashCode =>
+      userId.hashCode ^
+      amount.hashCode ^
+      status.hashCode ^
+      proofTid.hashCode ^
+      proofImageUrl.hashCode;
 }
 
 class SplitExpenseModel {
@@ -68,6 +127,38 @@ class SplitExpenseModel {
     required this.splits,
   });
 
+  SplitExpenseModel copyWith({
+    String? id,
+    String? title,
+    double? totalAmount,
+    String? category,
+    String? paidByUserId,
+    String? paidByName,
+    String? groupId,
+    String? groupName,
+    String? splitType,
+    DateTime? date,
+    String? notes,
+    bool? isFullySettled,
+    List<SplitMemberShare>? splits,
+  }) {
+    return SplitExpenseModel(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      totalAmount: totalAmount ?? this.totalAmount,
+      category: category ?? this.category,
+      paidByUserId: paidByUserId ?? this.paidByUserId,
+      paidByName: paidByName ?? this.paidByName,
+      groupId: groupId ?? this.groupId,
+      groupName: groupName ?? this.groupName,
+      splitType: splitType ?? this.splitType,
+      date: date ?? this.date,
+      notes: notes ?? this.notes,
+      isFullySettled: isFullySettled ?? this.isFullySettled,
+      splits: splits ?? this.splits,
+    );
+  }
+
   factory SplitExpenseModel.fromJson(Map<String, dynamic> json) {
     var rawSplits = json['splits'] as List<dynamic>? ?? [];
     List<SplitMemberShare> parsedSplits = rawSplits
@@ -97,4 +188,32 @@ class SplitExpenseModel {
       splits: parsedSplits,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'totalAmount': totalAmount,
+      'category': category,
+      'paidBy': paidByUserId,
+      'paidByName': paidByName,
+      'groupId': groupId,
+      'groupName': groupName,
+      'splitType': splitType,
+      'date': date.toIso8601String(),
+      'notes': notes,
+      'isFullySettled': isFullySettled,
+      'splits': splits.map((s) => s.toJson()).toList(),
+    };
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SplitExpenseModel &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }

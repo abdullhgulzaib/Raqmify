@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_icons.dart';
 import '../../core/services/biometric_service.dart';
 import '../../providers/auth_provider.dart';
 import '../main_navigation_screen.dart';
@@ -18,6 +20,10 @@ class QuickPinUnlockScreen extends StatefulWidget {
 class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with SingleTickerProviderStateMixin {
   String _enteredPin = '';
   bool _hasError = false;
+  String? _errorMessage;
+  int _lockoutSeconds = 0;
+  Timer? _countdownTimer;
+
   late AnimationController _shakeController;
   late Animation<double> _shakeAnimation;
 
@@ -32,37 +38,74 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
         .chain(CurveTween(curve: Curves.elasticIn))
         .animate(_shakeController);
 
-    // Auto-prompt Fingerprint / Biometric if enabled
+    _checkInitialLockout();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndPromptBiometric();
+    });
+  }
+
+  void _checkInitialLockout() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final remaining = await auth.checkLockout();
+    if (remaining > 0) {
+      _startLockoutCountdown(remaining);
+    }
+  }
+
+  void _startLockoutCountdown(int seconds) {
+    _countdownTimer?.cancel();
+    setState(() {
+      _lockoutSeconds = seconds;
+      _errorMessage = 'Too many failed attempts. Try again in ${_lockoutSeconds}s';
+    });
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (_lockoutSeconds <= 1) {
+        timer.cancel();
+        final auth = Provider.of<AuthProvider>(context, listen: false);
+        await auth.checkLockout();
+        if (mounted) {
+          setState(() {
+            _lockoutSeconds = 0;
+            _errorMessage = null;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _lockoutSeconds--;
+            _errorMessage = 'Cooldown active. Try again in ${_lockoutSeconds}s';
+          });
+        }
+      }
     });
   }
 
   @override
   void dispose() {
     _shakeController.dispose();
+    _countdownTimer?.cancel();
     super.dispose();
   }
 
   void _checkAndPromptBiometric() async {
+    if (_lockoutSeconds > 0) return;
     final auth = Provider.of<AuthProvider>(context, listen: false);
     if (!auth.isBiometricEnabled) return;
 
     final biometricService = BiometricService();
-    final canBio = await biometricService.canCheckBiometrics();
-    if (!canBio) return;
-
-    final authenticated = await biometricService.authenticate(
-      reason: 'Scan your fingerprint to unlock Raqmify',
+    final res = await biometricService.authenticateDetailed(
+      reason: 'Scan fingerprint or enter device credential to unlock Raqmify',
     );
 
-    if (authenticated && mounted) {
+    if (res.success && mounted) {
       _onUnlockSuccess();
     }
   }
 
   void _onDigitTapped(String digit) {
-    if (_enteredPin.length >= 4) return;
+    if (_lockoutSeconds > 0 || _enteredPin.length >= 4) return;
     HapticFeedback.lightImpact();
 
     setState(() {
@@ -76,7 +119,7 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
   }
 
   void _onDeleteTapped() {
-    if (_enteredPin.isEmpty) return;
+    if (_lockoutSeconds > 0 || _enteredPin.isEmpty) return;
     HapticFeedback.lightImpact();
     setState(() {
       _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1);
@@ -86,22 +129,40 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
 
   void _verifyPin() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final correct = auth.verifyPin(_enteredPin);
+    final result = await auth.verifyPin(_enteredPin);
 
-    if (correct) {
-      HapticFeedback.mediumImpact();
+    if (!mounted) return;
+
+    if (result.isSuccess) {
+      await HapticFeedback.mediumImpact();
       _onUnlockSuccess();
     } else {
-      HapticFeedback.heavyImpact();
-      setState(() => _hasError = true);
+      await HapticFeedback.heavyImpact();
+      setState(() {
+        _hasError = true;
+        _errorMessage = result.errorMessage;
+      });
       _shakeController.forward(from: 0.0);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Incorrect 4-Digit PIN. Please try again.'),
-          backgroundColor: AppColors.errorRed,
-          duration: Duration(seconds: 2),
-        ),
-      );
+
+      if (!mounted) return;
+      if (result.shouldLogout) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account locked due to 10 failed attempts. Please sign in with password.'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+        return;
+      }
+
+      if (result.isLockedOut) {
+        _startLockoutCountdown(result.lockoutSeconds);
+      }
+
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) {
         setState(() {
@@ -134,10 +195,12 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
-    final userName = auth.user?.name ?? 'User';
+    final userName = auth.currentUser?.name ?? 'User';
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: AppColors.offWhite,
+      backgroundColor: isDark ? AppColors.darkSurface : AppColors.offWhite,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -149,8 +212,9 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: AppColors.deepEmerald,
+                  color: isDark ? AppColors.darkCard : AppColors.deepEmerald,
                   borderRadius: BorderRadius.circular(20),
+                  border: isDark ? Border.all(color: AppColors.darkBorder) : null,
                   boxShadow: [
                     BoxShadow(
                       color: AppColors.deepEmerald.withValues(alpha: 0.25),
@@ -159,8 +223,8 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                     ),
                   ],
                 ),
-                child: const Center(
-                  child: Icon(Icons.lock_outline_rounded, color: Colors.white, size: 30),
+                child: Center(
+                  child: Icon(AppIcons.lock, color: isDark ? AppColors.teal : Colors.white, size: 30),
                 ),
               ),
               const SizedBox(height: 16),
@@ -171,7 +235,7 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                 style: GoogleFonts.outfit(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: AppColors.textMuted,
+                  color: isDark ? Colors.grey[400] : AppColors.textMuted,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -181,15 +245,19 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                 style: GoogleFonts.outfit(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.darkInk,
+                  color: isDark ? Colors.white : AppColors.darkInk,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Enter 4-Digit PIN or touch Fingerprint',
+                _errorMessage ?? 'Enter 4-Digit PIN or touch Fingerprint',
+                textAlign: TextAlign.center,
                 style: GoogleFonts.outfit(
                   fontSize: 13,
-                  color: AppColors.textMuted,
+                  color: _hasError || _lockoutSeconds > 0
+                      ? AppColors.errorRed
+                      : (isDark ? Colors.grey[400] : AppColors.textMuted),
+                  fontWeight: _hasError || _lockoutSeconds > 0 ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
 
@@ -200,7 +268,7 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                 animation: _shakeAnimation,
                 builder: (context, child) {
                   return Transform.translate(
-                    offset: Offset(_hasError ? _shakeAnimation.value : 0, 0),
+                    offset: Offset(_shakeAnimation.value, 0),
                     child: child,
                   );
                 },
@@ -217,25 +285,16 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
                         color: _hasError
                             ? AppColors.errorRed
                             : isFilled
-                                ? AppColors.deepEmerald
+                                ? (isDark ? AppColors.teal : AppColors.deepEmerald)
                                 : Colors.transparent,
                         border: Border.all(
                           color: _hasError
                               ? AppColors.errorRed
                               : isFilled
-                                  ? AppColors.deepEmerald
-                                  : AppColors.borderLight.withValues(alpha: 0.9),
-                          width: 2.5,
+                                  ? (isDark ? AppColors.teal : AppColors.deepEmerald)
+                                  : (isDark ? AppColors.darkBorder : AppColors.borderLight),
+                          width: 2,
                         ),
-                        boxShadow: isFilled && !_hasError
-                            ? [
-                                BoxShadow(
-                                  color: AppColors.deepEmerald.withValues(alpha: 0.35),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ]
-                            : null,
                       ),
                     );
                   }),
@@ -245,20 +304,19 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
               const Spacer(),
 
               // Numeric Keypad
-              _buildKeypad(),
+              _buildKeypad(isDark),
 
               const SizedBox(height: 24),
 
-              // Switch Account / Logout
-              GestureDetector(
-                onTap: _handleSwitchAccount,
+              // Switch Account Option
+              TextButton(
+                onPressed: _handleSwitchAccount,
                 child: Text(
-                  'Switch Account / Sign Out',
+                  'Switch Account / Log Out',
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textMuted,
-                    decoration: TextDecoration.underline,
+                    color: isDark ? AppColors.teal : AppColors.deepEmerald,
                   ),
                 ),
               ),
@@ -270,87 +328,79 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
     );
   }
 
-  Widget _buildKeypad() {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 320),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildKey('1'),
-              _buildKey('2'),
-              _buildKey('3'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildKey('4'),
-              _buildKey('5'),
-              _buildKey('6'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildKey('7'),
-              _buildKey('8'),
-              _buildKey('9'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Fingerprint Trigger Key
-              _buildIconButton(
-                icon: Icons.fingerprint_rounded,
-                color: AppColors.deepEmerald,
-                onTap: _checkAndPromptBiometric,
-              ),
-              _buildKey('0'),
-              // Backspace Key
-              _buildIconButton(
-                icon: Icons.backspace_outlined,
-                color: AppColors.darkInk,
-                onTap: _onDeleteTapped,
-              ),
-            ],
-          ),
-        ],
-      ),
+  Widget _buildKeypad(bool isDark) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [_buildKey('1', isDark), _buildKey('2', isDark), _buildKey('3', isDark)],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [_buildKey('4', isDark), _buildKey('5', isDark), _buildKey('6', isDark)],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [_buildKey('7', isDark), _buildKey('8', isDark), _buildKey('9', isDark)],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildIconButton(
+              icon: AppIcons.fingerprint,
+              color: isDark ? AppColors.teal : AppColors.deepEmerald,
+              onTap: _checkAndPromptBiometric,
+            ),
+            _buildKey('0', isDark),
+            _buildIconButton(
+              icon: Icons.backspace_outlined,
+              color: isDark ? Colors.white70 : AppColors.darkInk,
+              onTap: _onDeleteTapped,
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildKey(String digit) {
+  Widget _buildKey(String digit, bool isDark) {
+    final disabled = _lockoutSeconds > 0;
     return InkWell(
-      onTap: () => _onDigitTapped(digit),
+      onTap: disabled ? null : () => _onDigitTapped(digit),
       borderRadius: BorderRadius.circular(40),
       child: Container(
         width: 72,
         height: 72,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white,
-          border: Border.all(color: AppColors.borderLight, width: 1.2),
+          color: disabled
+              ? (isDark ? Colors.grey[900] : Colors.grey[200])
+              : (isDark ? AppColors.darkCard : Colors.white),
+          border: Border.all(
+            color: isDark ? AppColors.darkBorder : AppColors.borderLight,
+            width: 1,
+          ),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
+            if (!disabled)
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
           ],
         ),
         child: Center(
           child: Text(
             digit,
             style: GoogleFonts.outfit(
-              fontSize: 26,
+              fontSize: 24,
               fontWeight: FontWeight.w600,
-              color: AppColors.darkInk,
+              color: disabled
+                  ? Colors.grey
+                  : (isDark ? Colors.white : AppColors.darkInk),
             ),
           ),
         ),
@@ -364,13 +414,13 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
     required VoidCallback onTap,
   }) {
     return InkWell(
-      onTap: onTap,
+      onTap: _lockoutSeconds > 0 ? null : onTap,
       borderRadius: BorderRadius.circular(40),
       child: SizedBox(
         width: 72,
         height: 72,
         child: Center(
-          child: Icon(icon, color: color, size: 30),
+          child: Icon(icon, color: _lockoutSeconds > 0 ? Colors.grey : color, size: 28),
         ),
       ),
     );

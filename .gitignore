@@ -40,6 +40,12 @@ app.*.symbols
 *.apk
 *.aab
 
+# Android signing keys
+key.properties
+*.jks
+*.keystore
+android/key.properties
+
 # Obfuscation related
 app.*.map.json
 

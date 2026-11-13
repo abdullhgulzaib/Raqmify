@@ -13,6 +13,22 @@ class GroupMember {
     this.joinedAt,
   });
 
+  GroupMember copyWith({
+    String? userId,
+    String? name,
+    String? email,
+    String? role,
+    DateTime? joinedAt,
+  }) {
+    return GroupMember(
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      role: role ?? this.role,
+      joinedAt: joinedAt ?? this.joinedAt,
+    );
+  }
+
   factory GroupMember.fromJson(Map<String, dynamic> json) {
     return GroupMember(
       userId: json['user'] is String ? json['user'] : (json['user']?['_id'] ?? ''),
@@ -22,6 +38,26 @@ class GroupMember {
       joinedAt: json['joinedAt'] != null ? DateTime.tryParse(json['joinedAt']) : null,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'user': userId,
+      'name': name,
+      'email': email,
+      'role': role,
+      'joinedAt': joinedAt?.toIso8601String(),
+    };
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GroupMember &&
+          runtimeType == other.runtimeType &&
+          userId == other.userId;
+
+  @override
+  int get hashCode => userId.hashCode;
 }
 
 class GroupModel {
@@ -47,6 +83,30 @@ class GroupModel {
     required this.createdAt,
   });
 
+  GroupModel copyWith({
+    String? id,
+    String? name,
+    String? description,
+    String? category,
+    String? icon,
+    String? createdBy,
+    String? inviteCode,
+    List<GroupMember>? members,
+    DateTime? createdAt,
+  }) {
+    return GroupModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      category: category ?? this.category,
+      icon: icon ?? this.icon,
+      createdBy: createdBy ?? this.createdBy,
+      inviteCode: inviteCode ?? this.inviteCode,
+      members: members ?? this.members,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory GroupModel.fromJson(Map<String, dynamic> json) {
     var rawMembers = json['members'] as List<dynamic>? ?? [];
     List<GroupMember> parsedMembers = rawMembers
@@ -65,4 +125,28 @@ class GroupModel {
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) ?? DateTime.now() : DateTime.now(),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'category': category,
+      'icon': icon,
+      'createdBy': createdBy,
+      'inviteCode': inviteCode,
+      'members': members.map((m) => m.toJson()).toList(),
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GroupModel &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }

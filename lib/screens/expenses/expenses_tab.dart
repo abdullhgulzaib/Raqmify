@@ -3,8 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_icons.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/pdf_generator.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_shimmer.dart';
 import '../../models/expense_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
@@ -68,16 +71,49 @@ class _ExpensesTabState extends State<ExpensesTab> {
     }
   }
 
+  void _deleteExpenseWithUndo(ExpenseModel exp) async {
+    final verified = await SecurityVerificationModal.verify(
+      context,
+      title: 'Authorize Deletion',
+      subtitle: 'Scan fingerprint or enter PIN to delete expense',
+    );
+    if (!verified || !mounted) return;
+
+    final provider = Provider.of<ExpenseProvider>(context, listen: false);
+    await provider.deleteExpense(exp.id);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${exp.title}"'),
+          backgroundColor: AppColors.deepEmerald,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Undo',
+            textColor: AppColors.teal,
+            onPressed: () {
+              provider.restoreExpense(exp);
+            },
+          ),
+        ),
+      );
+    }
+  }
+
   void _showExpenseDetail(ExpenseModel exp, bool isMasked) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final sheetBg = isDark ? const Color(0xFF141E1C) : Colors.white;
+        final textColor = isDark ? Colors.white : AppColors.darkInk;
+
         return Container(
           padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          decoration: BoxDecoration(
+            color: sheetBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -88,7 +124,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
                   width: 44,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.borderLight,
+                    color: isDark ? AppColors.darkBorder : AppColors.borderLight,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -103,7 +139,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
                       style: GoogleFonts.outfit(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.darkInk,
+                        color: textColor,
                       ),
                     ),
                   ),
@@ -118,27 +154,15 @@ class _ExpensesTabState extends State<ExpensesTab> {
                       );
                       if (!verified || !context.mounted) return;
                       Navigator.pop(context);
-                      AddExpenseBottomSheet.edit(context, exp);
+                      await AddExpenseBottomSheet.edit(context, exp);
                     },
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, color: AppColors.errorRed),
+                    icon: const Icon(AppIcons.trash, color: AppColors.errorRed),
                     tooltip: 'Delete Expense',
-                    onPressed: () async {
-                      final verified = await SecurityVerificationModal.verify(
-                        context,
-                        title: 'Authorize Deletion',
-                        subtitle: 'Scan fingerprint or enter PIN to delete expense',
-                      );
-                      if (!verified || !context.mounted) return;
-                      Provider.of<ExpenseProvider>(context, listen: false).deleteExpense(exp.id);
+                    onPressed: () {
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Expense deleted'),
-                          backgroundColor: AppColors.darkInk,
-                        ),
-                      );
+                      _deleteExpenseWithUndo(exp);
                     },
                   ),
                 ],
@@ -149,20 +173,20 @@ class _ExpensesTabState extends State<ExpensesTab> {
                 style: GoogleFonts.outfit(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.deepEmerald,
+                  color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                 ),
               ),
               const SizedBox(height: 16),
-              const Divider(),
+              Divider(color: isDark ? AppColors.darkBorder : AppColors.borderLight),
               const SizedBox(height: 12),
-              _buildDetailRow('Category', exp.category),
+              _buildDetailRow('Category', exp.category, isDark),
               const SizedBox(height: 8),
-              _buildDetailRow('Date', DateFormat('dd MMMM yyyy, hh:mm a').format(exp.date)),
+              _buildDetailRow('Date', DateFormat('dd MMMM yyyy, hh:mm a').format(exp.date), isDark),
               const SizedBox(height: 8),
-              _buildDetailRow('Payment Method', exp.paymentMethod),
+              _buildDetailRow('Payment Method', exp.paymentMethod, isDark),
               if (exp.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                _buildDetailRow('Notes', exp.notes),
+                _buildDetailRow('Notes', exp.notes, isDark),
               ],
               const SizedBox(height: 24),
               Row(
@@ -203,7 +227,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(String label, String value, bool isDark) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -216,7 +240,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
           style: GoogleFonts.outfit(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: AppColors.darkInk,
+            color: isDark ? Colors.white : AppColors.darkInk,
           ),
         ),
       ],
@@ -225,6 +249,7 @@ class _ExpensesTabState extends State<ExpensesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final expenseProvider = Provider.of<ExpenseProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final isMasked = authProvider.isPrivacyMasked;
@@ -233,14 +258,14 @@ class _ExpensesTabState extends State<ExpensesTab> {
     final totalFiltered = filteredExpenses.fold(0.0, (sum, e) => sum + e.amount);
 
     return Scaffold(
-      backgroundColor: AppColors.offWhite,
+      backgroundColor: isDark ? const Color(0xFF121B19) : AppColors.offWhite,
       appBar: AppBar(
         title: Text(
           'Personal Expenses',
           style: GoogleFonts.outfit(
             fontSize: 20,
             fontWeight: FontWeight.w700,
-            color: AppColors.darkInk,
+            color: isDark ? Colors.white : AppColors.darkInk,
           ),
         ),
         actions: [
@@ -294,10 +319,10 @@ class _ExpensesTabState extends State<ExpensesTab> {
                   subtitle: 'Scan fingerprint or enter PIN to reveal balance',
                 );
                 if (verified) {
-                  authProvider.togglePrivacyMask();
+                  await authProvider.togglePrivacyMask(force: true);
                 }
               } else {
-                authProvider.togglePrivacyMask();
+                await authProvider.togglePrivacyMask();
               }
             },
           ),
@@ -311,9 +336,12 @@ class _ExpensesTabState extends State<ExpensesTab> {
             child: TextField(
               controller: _searchController,
               onChanged: (val) => expenseProvider.setSearchQuery(val),
+              style: TextStyle(color: isDark ? Colors.white : AppColors.darkInk),
               decoration: InputDecoration(
                 hintText: 'Search expenses by name or notes...',
                 prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textMuted),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E2826) : Colors.white,
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear, size: 18),
@@ -344,13 +372,13 @@ class _ExpensesTabState extends State<ExpensesTab> {
                     },
                     selectedColor: AppColors.deepEmerald,
                     labelStyle: GoogleFonts.outfit(
-                      color: isSelected ? Colors.white : AppColors.darkInk,
+                      color: isSelected ? Colors.white : (isDark ? Colors.white70 : AppColors.darkInk),
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                       fontSize: 13,
                     ),
-                    backgroundColor: Colors.white,
+                    backgroundColor: isDark ? const Color(0xFF1E2826) : Colors.white,
                     side: BorderSide(
-                      color: isSelected ? AppColors.deepEmerald : AppColors.borderLight,
+                      color: isSelected ? AppColors.deepEmerald : (isDark ? AppColors.darkBorder : AppColors.borderLight),
                     ),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -378,14 +406,14 @@ class _ExpensesTabState extends State<ExpensesTab> {
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.deepEmerald,
+                    color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                   ),
                 ),
               ],
             ),
           ),
 
-          // 4. Expenses List
+          // 4. Expenses List / Shimmer (U1)
           Expanded(
             child: RefreshIndicator(
               color: AppColors.deepEmerald,
@@ -394,158 +422,197 @@ class _ExpensesTabState extends State<ExpensesTab> {
                   await expenseProvider.fetchExpenses();
                 }
               },
-              child: filteredExpenses.isEmpty
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 100),
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.search_off_rounded, size: 64, color: AppColors.textMuted),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No matching expenses found',
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.darkInk,
+              child: expenseProvider.isLoading && filteredExpenses.isEmpty
+                  ? const ShimmerListPlaceholder(itemCount: 7)
+                  : filteredExpenses.isEmpty
+                      ? ListView(
+                          children: [
+                            const SizedBox(height: 60),
+                            AppEmptyState(
+                              icon: Icons.search_off_rounded,
+                              title: 'No matching expenses found',
+                              message: 'Try adjusting your search query or filters, or tap + to record your first expense.',
+                              actionLabel: 'Add Expense',
+                              onAction: () => AddExpenseBottomSheet.show(context),
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          // U7: Bottom padding >= 88 dp for FAB clearance
+                          padding: const EdgeInsets.only(left: 20, right: 20, top: 10, bottom: 92),
+                          itemCount: filteredExpenses.length,
+                          separatorBuilder: (context, index) => const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final exp = filteredExpenses[index];
+                            final isSyncFailed = exp.syncStatus == 'failed';
+                            final isSyncPending = exp.syncStatus == 'pending';
+
+                            return Dismissible(
+                              key: Key(exp.id),
+                              direction: DismissDirection.endToStart,
+                              confirmDismiss: (direction) async {
+                                return await SecurityVerificationModal.verify(
+                                  context,
+                                  title: 'Authorize Deletion',
+                                  subtitle: 'Scan fingerprint or enter PIN to delete expense',
+                                );
+                              },
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                decoration: BoxDecoration(
+                                  color: AppColors.errorRed,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: const Icon(AppIcons.trash, color: Colors.white),
+                              ),
+                              onDismissed: (_) {
+                                expenseProvider.deleteExpense(exp.id);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Deleted "${exp.title}"'),
+                                    backgroundColor: AppColors.deepEmerald,
+                                    duration: const Duration(seconds: 5),
+                                    action: SnackBarAction(
+                                      label: 'Undo',
+                                      textColor: AppColors.teal,
+                                      onPressed: () {
+                                        expenseProvider.restoreExpense(exp);
+                                      },
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Try adjusting your search query or category filters, or tap + to add your first expense.',
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.outfit(fontSize: 13, color: AppColors.textMuted),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
-                  : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    itemCount: filteredExpenses.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final exp = filteredExpenses[index];
-                      return Dismissible(
-                        key: Key(exp.id),
-                        direction: DismissDirection.endToStart,
-                        confirmDismiss: (direction) async {
-                          return await SecurityVerificationModal.verify(
-                            context,
-                            title: 'Authorize Deletion',
-                            subtitle: 'Scan fingerprint or enter PIN to delete expense',
-                          );
-                        },
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          decoration: BoxDecoration(
-                            color: AppColors.errorRed,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: const Icon(Icons.delete_rounded, color: Colors.white),
-                        ),
-                        onDismissed: (_) {
-                          expenseProvider.deleteExpense(exp.id);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Deleted "${exp.title}"'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                        child: InkWell(
-                          onTap: () => _showExpenseDetail(exp, isMasked),
-                          borderRadius: BorderRadius.circular(18),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: AppColors.borderLight),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
+                                );
+                              },
+                              child: InkWell(
+                                onTap: () => _showExpenseDetail(exp, isMasked),
+                                borderRadius: BorderRadius.circular(18),
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
-                                    color: AppColors.surfaceSubtle,
-                                    borderRadius: BorderRadius.circular(14),
+                                    color: isDark ? const Color(0xFF1E2826) : Colors.white,
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: isSyncFailed
+                                          ? AppColors.errorRed.withValues(alpha: 0.4)
+                                          : (isDark ? AppColors.darkBorder : AppColors.borderLight),
+                                    ),
                                   ),
-                                  child: Icon(
-                                    _getCategoryIcon(exp.category),
-                                    color: AppColors.deepEmerald,
-                                    size: 22,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        exp.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.outfit(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.darkInk,
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color: isDark ? const Color(0xFF1A3831) : AppColors.surfaceSubtle,
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                        child: Icon(
+                                          _getCategoryIcon(exp.category),
+                                          color: AppColors.deepEmerald,
+                                          size: 22,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            DateFormat('dd MMM yyyy').format(exp.date),
-                                            style: GoogleFonts.outfit(
-                                              fontSize: 12,
-                                              color: AppColors.textMuted,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.surfaceSubtle,
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              exp.paymentMethod,
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              exp.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                               style: GoogleFonts.outfit(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w500,
-                                                color: AppColors.darkInk,
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: isDark ? Colors.white : AppColors.darkInk,
                                               ),
                                             ),
-                                          ),
-                                        ],
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  DateFormat('dd MMM yyyy').format(exp.date),
+                                                  style: GoogleFonts.outfit(
+                                                    fontSize: 12,
+                                                    color: AppColors.textMuted,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: isDark ? const Color(0xFF162421) : AppColors.surfaceSubtle,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    exp.paymentMethod,
+                                                    style: GoogleFonts.outfit(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: isDark ? Colors.white70 : AppColors.darkInk,
+                                                    ),
+                                                  ),
+                                                ),
+                                                // S5: Sync status badge
+                                                if (isSyncFailed) ...[
+                                                  const SizedBox(width: 6),
+                                                  InkWell(
+                                                    onTap: () {
+                                                      expenseProvider.retrySync(exp.id);
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text('Retrying sync...'),
+                                                          duration: Duration(seconds: 1),
+                                                        ),
+                                                      );
+                                                    },
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: AppColors.errorRed.withValues(alpha: 0.12),
+                                                        borderRadius: BorderRadius.circular(6),
+                                                      ),
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(Icons.sync_problem_rounded, size: 10, color: AppColors.errorRed),
+                                                          const SizedBox(width: 3),
+                                                          Text(
+                                                            'Retry',
+                                                            style: GoogleFonts.outfit(
+                                                              fontSize: 10,
+                                                              fontWeight: FontWeight.w700,
+                                                              color: AppColors.errorRed,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ] else if (isSyncPending) ...[
+                                                  const SizedBox(width: 6),
+                                                  const Icon(AppIcons.time, size: 12, color: AppColors.pendingOrange),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Text(
+                                        CurrencyFormatter.format(exp.amount, isMasked: isMasked),
+                                        style: GoogleFonts.outfit(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: isDark ? Colors.white : AppColors.darkInk,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                Text(
-                                  CurrencyFormatter.format(exp.amount, isMasked: isMasked),
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.darkInk,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
             ),
           ),
         ],

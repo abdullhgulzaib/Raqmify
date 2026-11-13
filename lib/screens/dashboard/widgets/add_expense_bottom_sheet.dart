@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/money_input_formatter.dart';
 import '../../../models/expense_model.dart';
 import '../../../providers/expense_provider.dart';
 
@@ -117,7 +118,7 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
   void _saveExpense() {
     if (!_formKey.currentState!.validate()) return;
 
-    final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    final amount = MoneyInputFormatter.parseDouble(_amountController.text);
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -129,9 +130,10 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
     }
 
     final isEditing = widget.expenseToEdit != null;
+    final expProvider = Provider.of<ExpenseProvider>(context, listen: false);
 
     if (isEditing) {
-      final updated = ExpenseModel(
+      expProvider.updateExpense(
         id: widget.expenseToEdit!.id,
         title: _titleController.text.trim(),
         amount: amount,
@@ -141,13 +143,11 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
         notes: _notesController.text.trim(),
       );
 
-      Provider.of<ExpenseProvider>(context, listen: false).updateExpenseModel(updated);
-
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Updated "${updated.title}" (Rs ${updated.amount.toStringAsFixed(0)})',
+            'Updated "${_titleController.text.trim()}" (Rs $amount)',
             style: GoogleFonts.outfit(fontWeight: FontWeight.w500),
           ),
           backgroundColor: AppColors.deepEmerald,
@@ -156,8 +156,7 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
         ),
       );
     } else {
-      final newExpense = ExpenseModel(
-        id: 'exp_${DateTime.now().millisecondsSinceEpoch}',
+      expProvider.addExpense(
         title: _titleController.text.trim(),
         amount: amount,
         category: _selectedCategory,
@@ -166,13 +165,11 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
         notes: _notesController.text.trim(),
       );
 
-      Provider.of<ExpenseProvider>(context, listen: false).addExpenseModel(newExpense);
-
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Added "${newExpense.title}" (Rs ${newExpense.amount.toStringAsFixed(0)})',
+            'Added "${_titleController.text.trim()}" (Rs $amount)',
             style: GoogleFonts.outfit(fontWeight: FontWeight.w500),
           ),
           backgroundColor: AppColors.deepEmerald,
@@ -261,6 +258,7 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
                       child: TextFormField(
                         controller: _amountController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [MoneyInputFormatter()],
                         style: GoogleFonts.outfit(
                           fontSize: 28,
                           fontWeight: FontWeight.w700,
@@ -276,7 +274,7 @@ class _AddExpenseBottomSheetState extends State<AddExpenseBottomSheet> {
                         ),
                         validator: (val) {
                           if (val == null || val.trim().isEmpty) return 'Enter amount';
-                          if (double.tryParse(val) == null) return 'Invalid number';
+                          if (MoneyInputFormatter.parseDouble(val) <= 0) return 'Enter valid amount';
                           return null;
                         },
                       ),

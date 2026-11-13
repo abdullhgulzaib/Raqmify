@@ -1,9 +1,10 @@
 class ApiConstants {
-  // Production Vercel Live Backend URL
-  static const String productionUrl = 'https://expense-tracker-pro-navy.vercel.app';
-
-  // Base URL pointing directly to production Vercel backend
-  static String get baseUrl => productionUrl;
+  // Configurable API Base URL passed via --dart-define=API_BASE_URL
+  static const String _defaultUrl = 'https://expense-tracker-pro-navy.vercel.app';
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: _defaultUrl,
+  );
 
   // Auth Endpoints
   static const String register = '/api/auth/register';
@@ -25,7 +26,7 @@ class ApiConstants {
 
   // Notifications
   static const String notifications = '/api/notifications';
-  
+
   // Cleanup & Retention
   static const String cleanupStatus = '/api/cleanup/status';
 }

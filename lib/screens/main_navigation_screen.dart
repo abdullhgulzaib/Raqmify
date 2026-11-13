@@ -12,7 +12,6 @@ import 'dashboard/widgets/add_expense_bottom_sheet.dart';
 import 'expenses/expenses_tab.dart';
 import 'analytics/analytics_tab.dart';
 import 'split_vault/split_vault_tab.dart';
-import 'split_vault/widgets/create_split_expense_bottom_sheet.dart';
 import 'settings/settings_tab.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -114,32 +113,33 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  Widget _buildFloatingActionButton() {
-    final isSplitTab = _currentIndex == 3;
-
+  Widget? _buildFloatingActionButton() {
+    // For SplitVaultTab (index 3), it renders its own dedicated "Split Expense" FAB with split icon.
+    // Hide the generic + button on this page to prevent duplicate overlapping buttons.
+    if (_currentIndex == 3) {
+      return null;
+    }
     return GestureDetector(
       onTap: () async {
-        HapticFeedback.lightImpact();
+        await HapticFeedback.lightImpact();
 
+        if (!mounted) return;
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
         // If Privacy Vault is locked/masked, verify once to unlock
         if (authProvider.isPrivacyMasked && authProvider.hasPin) {
           final verified = await SecurityVerificationModal.verify(
             context,
-            title: isSplitTab ? 'Authorize Split Bill' : 'Authorize New Expense',
+            title: 'Authorize New Expense',
             subtitle: 'Scan fingerprint or enter PIN to continue',
           );
           if (!verified || !mounted) return;
           // Unlock privacy vault so subsequent expense additions don't prompt PIN repeatedly
-          authProvider.togglePrivacyMask();
+          await authProvider.togglePrivacyMask(force: true);
         }
 
-        if (isSplitTab) {
-          CreateSplitExpenseBottomSheet.show(context);
-        } else {
-          AddExpenseBottomSheet.show(context);
-        }
+        if (!mounted) return;
+        await AddExpenseBottomSheet.show(context);
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),

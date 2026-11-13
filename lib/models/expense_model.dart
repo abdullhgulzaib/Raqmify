@@ -8,6 +8,7 @@ class ExpenseModel {
   final String notes;
   final String status;
   final String? userId;
+  final String syncStatus; // synced, pending, failed (S5)
 
   ExpenseModel({
     required this.id,
@@ -19,7 +20,34 @@ class ExpenseModel {
     this.notes = '',
     this.status = 'Completed',
     this.userId,
+    this.syncStatus = 'synced',
   });
+
+  ExpenseModel copyWith({
+    String? id,
+    String? title,
+    double? amount,
+    String? category,
+    DateTime? date,
+    String? paymentMethod,
+    String? notes,
+    String? status,
+    String? userId,
+    String? syncStatus,
+  }) {
+    return ExpenseModel(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      amount: amount ?? this.amount,
+      category: category ?? this.category,
+      date: date ?? this.date,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      notes: notes ?? this.notes,
+      status: status ?? this.status,
+      userId: userId ?? this.userId,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 
   factory ExpenseModel.fromJson(Map<String, dynamic> json) {
     DateTime parsedDate;
@@ -41,11 +69,13 @@ class ExpenseModel {
       notes: json['notes'] ?? '',
       status: json['status'] ?? 'Completed',
       userId: json['userId'] is String ? json['userId'] : (json['userId']?['_id'] ?? ''),
+      syncStatus: json['syncStatus'] ?? 'synced',
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'title': title,
       'amount': amount,
       'category': category,
@@ -53,6 +83,18 @@ class ExpenseModel {
       'paymentMethod': paymentMethod,
       'notes': notes,
       'status': status,
+      'syncStatus': syncStatus,
     };
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ExpenseModel &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          syncStatus == other.syncStatus;
+
+  @override
+  int get hashCode => id.hashCode ^ syncStatus.hashCode;
 }

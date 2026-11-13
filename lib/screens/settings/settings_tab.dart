@@ -1,12 +1,15 @@
+// ignore_for_file: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_icons.dart';
 import '../../core/utils/pdf_generator.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
 import '../../providers/split_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../auth/login_screen.dart';
 
 class SettingsTab extends StatelessWidget {
@@ -16,56 +19,76 @@ class SettingsTab extends StatelessWidget {
     final pinController = TextEditingController();
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          'Set 4-Digit Privacy PIN',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Enter a 4-digit PIN to secure your sensitive balance and hostel debt calculations.',
-              style: GoogleFonts.outfit(fontSize: 13, color: AppColors.textMuted),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pinController,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              obscureText: true,
-              decoration: const InputDecoration(
-                hintText: '••••',
-                prefixIcon: Icon(Icons.lock_rounded, color: AppColors.deepEmerald),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        final dialogBg = isDark ? const Color(0xFF1B2422) : Colors.white;
+        final textColor = isDark ? Colors.white : AppColors.darkInk;
+        final inputBg = isDark ? const Color(0xFF24322F) : AppColors.surfaceSubtle;
+
+        return AlertDialog(
+          backgroundColor: dialogBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Set 4-Digit Privacy PIN',
+            style: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: textColor),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Enter a 4-digit PIN to secure your sensitive balance and hostel debt calculations.',
+                style: GoogleFonts.outfit(fontSize: 13, color: AppColors.textMuted),
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pinController,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                style: TextStyle(color: textColor, letterSpacing: 8, fontWeight: FontWeight.w700),
+                decoration: InputDecoration(
+                  hintText: '••••',
+                  prefixIcon: const Icon(AppIcons.lock, color: AppColors.deepEmerald),
+                  filled: true,
+                  fillColor: inputBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.deepEmerald,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                final pin = pinController.text.trim();
+                if (pin.length == 4) {
+                  Provider.of<AuthProvider>(context, listen: false).setPrivacyPin(pin);
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Privacy PIN updated successfully!'),
+                      backgroundColor: AppColors.deepEmerald,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Save PIN'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final pin = pinController.text.trim();
-              if (pin.length == 4) {
-                Provider.of<AuthProvider>(context, listen: false).setPrivacyPin(pin);
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Privacy PIN updated successfully!'),
-                    backgroundColor: AppColors.deepEmerald,
-                  ),
-                );
-              }
-            },
-            child: const Text('Save PIN'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -101,23 +124,28 @@ class SettingsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.currentUser;
 
+    final cardBg = isDark ? const Color(0xFF1E2826) : Colors.white;
+    final textColor = isDark ? Colors.white : AppColors.darkInk;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.borderLight;
+
     return Scaffold(
-      backgroundColor: AppColors.offWhite,
+      backgroundColor: isDark ? const Color(0xFF121B19) : AppColors.offWhite,
       appBar: AppBar(
         title: Text(
           'Settings & Vault',
           style: GoogleFonts.outfit(
             fontSize: 20,
             fontWeight: FontWeight.w700,
-            color: AppColors.darkInk,
+            color: textColor,
           ),
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.only(left: 20, right: 20, top: 12, bottom: 88),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -125,9 +153,9 @@ class SettingsTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppColors.borderLight),
+                border: Border.all(color: borderColor),
               ),
               child: Row(
                 children: [
@@ -153,7 +181,7 @@ class SettingsTab extends StatelessWidget {
                           style: GoogleFonts.outfit(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
-                            color: AppColors.darkInk,
+                            color: textColor,
                           ),
                         ),
                         Text(
@@ -167,7 +195,7 @@ class SettingsTab extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: AppColors.lightEmerald,
+                            color: isDark ? const Color(0xFF1A3831) : AppColors.lightEmerald,
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -175,7 +203,7 @@ class SettingsTab extends StatelessWidget {
                             style: GoogleFonts.outfit(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.deepEmerald,
+                              color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                             ),
                           ),
                         ),
@@ -193,53 +221,53 @@ class SettingsTab extends StatelessWidget {
               style: GoogleFonts.outfit(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppColors.darkInk,
+                color: textColor,
               ),
             ),
             const SizedBox(height: 12),
 
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.borderLight),
+                border: Border.all(color: borderColor),
               ),
               child: Column(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.pin_rounded, color: AppColors.deepEmerald),
+                    leading: const Icon(AppIcons.lock, color: AppColors.deepEmerald),
                     title: Text(
                       '4-Digit Security PIN',
-                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600, color: textColor),
                     ),
                     subtitle: Text(
-                      authProvider.hasPrivacyPin ? 'PIN is active (${authProvider.vaultPin != null ? '••••' : ''})' : 'Not set (tap to set)',
+                      authProvider.hasPin ? 'PIN is active (••••)' : 'Not set (tap to set)',
                       style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
                     ),
                     trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
                     onTap: () => _showSetPinDialog(context),
                   ),
-                  const Divider(height: 1, indent: 56),
+                  Divider(height: 1, indent: 56, color: borderColor),
                   SwitchListTile(
                     secondary: const Icon(Icons.fingerprint_rounded, color: AppColors.deepEmerald),
                     title: Text(
                       'Biometric / Fingerprint Unlock',
-                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600, color: textColor),
                     ),
                     subtitle: Text(
-                      'Unlock app with fingerprint sensor',
+                      'Unlock app with fingerprint sensor or device passcode',
                       style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
                     ),
                     value: authProvider.isBiometricEnabled,
                     activeThumbColor: AppColors.deepEmerald,
                     onChanged: (val) => authProvider.setBiometricEnabled(val),
                   ),
-                  const Divider(height: 1, indent: 56),
+                  Divider(height: 1, indent: 56, color: borderColor),
                   SwitchListTile(
                     secondary: const Icon(Icons.visibility_off_rounded, color: AppColors.deepEmerald),
                     title: Text(
                       'Privacy Mode (Eye)',
-                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600, color: textColor),
                     ),
                     subtitle: Text(
                       'Hide balances across all screens',
@@ -254,39 +282,93 @@ class SettingsTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // 3. Data & Export Lifecycle Section (Module 5)
+            // Appearance & Theme Mode Section (U3)
+            Consumer<ThemeProvider>(
+              builder: (context, themeProvider, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Appearance',
+                      style: GoogleFonts.outfit(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Column(
+                        children: [
+                          RadioListTile<ThemeMode>(
+                            title: Text('System Default', style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: textColor)),
+                            subtitle: Text('Follow operating system setting', style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted)),
+                            value: ThemeMode.system,
+                            groupValue: themeProvider.themeMode,
+                            activeColor: AppColors.teal,
+                            onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                          ),
+                          Divider(height: 1, indent: 56, color: borderColor),
+                          RadioListTile<ThemeMode>(
+                            title: Text('Light Mode', style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: textColor)),
+                            subtitle: Text('Crisp Off-white & Emerald', style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted)),
+                            value: ThemeMode.light,
+                            groupValue: themeProvider.themeMode,
+                            activeColor: AppColors.deepEmerald,
+                            onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                          ),
+                          Divider(height: 1, indent: 56, color: borderColor),
+                          RadioListTile<ThemeMode>(
+                            title: Text('Dark Mode', style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: textColor)),
+                            subtitle: Text('Near-black (#101817) & Teal', style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted)),
+                            value: ThemeMode.dark,
+                            groupValue: themeProvider.themeMode,
+                            activeColor: AppColors.teal,
+                            onChanged: (mode) => themeProvider.setThemeMode(mode!),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                );
+              },
+            ),
+
+            // 3. Data & Export Lifecycle Section
             Text(
               'Data Lifecycle & Export',
               style: GoogleFonts.outfit(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppColors.darkInk,
+                color: textColor,
               ),
             ),
             const SizedBox(height: 12),
 
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.borderLight),
+                border: Border.all(color: borderColor),
               ),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.picture_as_pdf_rounded, color: AppColors.deepEmerald),
-                    title: Text(
-                      'Generate PDF Statement',
-                      style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      'Formatted itemized statement with official header',
-                      style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
-                    ),
-                    trailing: const Icon(Icons.download_rounded, color: AppColors.deepEmerald),
-                    onTap: () => _exportPdf(context),
-                  ),
-                ],
+              child: ListTile(
+                leading: const Icon(Icons.picture_as_pdf_rounded, color: AppColors.deepEmerald),
+                title: Text(
+                  'Generate PDF Statement',
+                  style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w600, color: textColor),
+                ),
+                subtitle: Text(
+                  'Formatted itemized statement with official header',
+                  style: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
+                ),
+                trailing: const Icon(Icons.download_rounded, color: AppColors.deepEmerald),
+                onTap: () => _exportPdf(context),
               ),
             ),
             const SizedBox(height: 14),
@@ -295,9 +377,9 @@ class SettingsTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppColors.surfaceSubtle,
+                color: isDark ? const Color(0xFF162B24) : AppColors.surfaceSubtle,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.borderLight),
+                border: Border.all(color: borderColor),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,7 +395,7 @@ class SettingsTab extends StatelessWidget {
                           style: GoogleFonts.outfit(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: AppColors.deepEmerald,
+                            color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -335,7 +417,7 @@ class SettingsTab extends StatelessWidget {
               style: GoogleFonts.outfit(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppColors.darkInk,
+                color: textColor,
               ),
             ),
             const SizedBox(height: 12),
@@ -343,9 +425,9 @@ class SettingsTab extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.borderLight),
+                border: Border.all(color: borderColor),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,10 +437,10 @@ class SettingsTab extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: AppColors.lightEmerald,
+                          color: isDark ? const Color(0xFF1A3831) : AppColors.lightEmerald,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.account_balance_wallet_rounded, color: AppColors.deepEmerald),
+                        child: const Icon(AppIcons.wallet, color: AppColors.deepEmerald),
                       ),
                       const SizedBox(width: 12),
                       Column(
@@ -366,7 +448,7 @@ class SettingsTab extends StatelessWidget {
                         children: [
                           Text(
                             'Raqmify Mobile v1.0.0',
-                            style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w700),
+                            style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w700, color: textColor),
                           ),
                           Text(
                             '"Your money, your control."',

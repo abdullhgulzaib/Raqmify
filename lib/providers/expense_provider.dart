@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../core/constants/api_constants.dart';
 import '../core/network/api_client.dart';
+import '../core/network/app_failure.dart';
+import '../core/network/result.dart';
+import '../dev/demo_data.dart';
 import '../models/expense_model.dart';
 
 class ExpenseProvider extends ChangeNotifier {
@@ -9,7 +11,13 @@ class ExpenseProvider extends ChangeNotifier {
 
   List<ExpenseModel> _expenses = [];
   bool _isLoading = false;
+  bool _isLoadingMore = false;
   String? _errorMessage;
+
+  // Pagination (Q3)
+  int _currentPage = 1;
+  final int _pageSize = 20;
+  bool _hasMore = true;
 
   // Filter States
   String _searchQuery = '';
@@ -18,73 +26,32 @@ class ExpenseProvider extends ChangeNotifier {
 
   List<ExpenseModel> get expenses => _expenses;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
   String? get errorMessage => _errorMessage;
+  bool get hasMore => _hasMore;
   String get searchQuery => _searchQuery;
   String get selectedCategory => _selectedCategory;
   String get selectedPaymentMethod => _selectedPaymentMethod;
 
   ExpenseProvider() {
-    // Empty by default — real database data will be fetched on login
     _expenses = [];
   }
 
   void clearData() {
     _expenses = [];
+    _currentPage = 1;
+    _hasMore = true;
+    _errorMessage = null;
     notifyListeners();
   }
 
   void loadDemoData() {
-    final now = DateTime.now();
-    _expenses = [
-      ExpenseModel(
-        id: 'exp_1',
-        title: 'Hostel Room Rent & WiFi',
-        amount: 8500.0,
-        category: 'Housing',
-        date: now.subtract(const Duration(days: 1)),
-        paymentMethod: 'Bank Transfer',
-        notes: 'Monthly hostel dues',
-      ),
-      ExpenseModel(
-        id: 'exp_2',
-        title: 'Dinner at Monal with Roommates',
-        amount: 2540.0,
-        category: 'Food',
-        date: now,
-        paymentMethod: 'Easypaisa',
-        notes: 'Split between Rana, Ali and Abdul',
-      ),
-      ExpenseModel(
-        id: 'exp_3',
-        title: 'Metro Bus Card Recharge',
-        amount: 1000.0,
-        category: 'Transportation',
-        date: now.subtract(const Duration(days: 3)),
-        paymentMethod: 'Card',
-      ),
-      ExpenseModel(
-        id: 'exp_4',
-        title: 'Semester Textbooks & Printing',
-        amount: 1850.0,
-        category: 'Education',
-        date: now.subtract(const Duration(days: 5)),
-        paymentMethod: 'Cash',
-      ),
-      ExpenseModel(
-        id: 'exp_5',
-        title: 'Grocery (Milk, Eggs & Fruits)',
-        amount: 980.0,
-        category: 'Groceries',
-        date: now,
-        paymentMethod: 'Cash',
-      ),
-    ];
+    if (!kDebugMode) return;
+    _expenses = DemoData.getSampleExpenses();
     notifyListeners();
   }
 
   // --- Analytical Calculations (As defined in Proposal) ---
-
-  // Today's Total Spend
   double get todaySpend {
     final now = DateTime.now();
     return _expenses
@@ -95,7 +62,6 @@ class ExpenseProvider extends ChangeNotifier {
         .fold(0.0, (sum, e) => sum + e.amount);
   }
 
-  // Current Month Total
   double get currentMonthTotal {
     final now = DateTime.now();
     return _expenses
@@ -103,7 +69,6 @@ class ExpenseProvider extends ChangeNotifier {
         .fold(0.0, (sum, e) => sum + e.amount);
   }
 
-  // Dynamic Daily Average = Current Month Total / Days Elapsed
   double get dynamicDailyAverage {
     final now = DateTime.now();
     final daysElapsed = now.day > 0 ? now.day : 1;
@@ -111,7 +76,6 @@ class ExpenseProvider extends ChangeNotifier {
     return total / daysElapsed;
   }
 
-  // Filtered Expenses List
   List<ExpenseModel> get filteredExpenses {
     return _expenses.where((expense) {
       final matchesSearch = _searchQuery.isEmpty ||
@@ -129,7 +93,6 @@ class ExpenseProvider extends ChangeNotifier {
       ..sort((a, b) => b.date.compareTo(a.date));
   }
 
-  // Filter Setters
   void setSearchQuery(String query) {
     _searchQuery = query;
     notifyListeners();
@@ -145,58 +108,91 @@ class ExpenseProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Fetch from MongoDB Atlas API
-  Future<void> fetchExpenses() async {
+  // Fetch with Pagination (Q3)
+  Future<void> fetchExpenses({bool refresh = false}) async {
+    if (refresh) {
+      _currentPage = 1;
+      _hasMore = true;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final response = await _apiClient.get(ApiConstants.expenses);
+      final response = await _apiClient.get(
+        ApiConstants.expenses,
+        queryParameters: {'page': _currentPage, 'limit': _pageSize},
+      );
+
       if (response.data != null) {
         final dynamic raw = response.data;
         final List<dynamic> list = raw is List
             ? raw
             : (raw['expenses'] ?? raw['data'] ?? []);
-        _expenses = list
+
+        final fetched = list
             .map((json) => ExpenseModel.fromJson(json as Map<String, dynamic>))
             .toList();
-      } else {
-        _expenses = [];
-      }
-    } on DioException catch (e) {
-      _errorMessage = e.response?.data?['message'] ?? e.response?.data?['error'] ?? e.message;
-    } catch (e) {
-      _errorMessage = e.toString();
-    }
 
-    _isLoading = false;
-    notifyListeners();
+        if (refresh || _currentPage == 1) {
+          _expenses = fetched;
+        } else {
+          _expenses.addAll(fetched);
+        }
+
+        _hasMore = fetched.length >= _pageSize;
+      } else {
+        if (refresh || _currentPage == 1) _expenses = [];
+        _hasMore = false;
+      }
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
-  // Add Expense
-  Future<bool> addExpenseModel(ExpenseModel expense) async {
-    _expenses.insert(0, expense);
+  Future<void> loadMoreExpenses() async {
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
     notifyListeners();
 
     try {
-      final response = await _apiClient.post(
+      final nextPage = _currentPage + 1;
+      final response = await _apiClient.get(
         ApiConstants.expenses,
-        data: expense.toJson(),
+        queryParameters: {'page': nextPage, 'limit': _pageSize},
       );
-      if (response.data != null && response.data is Map<String, dynamic>) {
-        final created = ExpenseModel.fromJson(response.data as Map<String, dynamic>);
-        final idx = _expenses.indexWhere((e) => e.id == expense.id);
-        if (idx != -1) {
-          _expenses[idx] = created;
-          notifyListeners();
-        }
+
+      if (response.data != null) {
+        final dynamic raw = response.data;
+        final List<dynamic> list = raw is List
+            ? raw
+            : (raw['expenses'] ?? raw['data'] ?? []);
+
+        final fetched = list
+            .map((json) => ExpenseModel.fromJson(json as Map<String, dynamic>))
+            .toList();
+
+        _expenses.addAll(fetched);
+        _currentPage = nextPage;
+        _hasMore = fetched.length >= _pageSize;
+      } else {
+        _hasMore = false;
       }
-    } catch (_) {}
-    return true;
+    } catch (_) {
+      // Background page load failure doesn't wipe existing items
+    } finally {
+      _isLoadingMore = false;
+      notifyListeners();
+    }
   }
 
-  Future<bool> addExpense({
+  // Add Expense with Explicit Result and Sync State (S5)
+  Future<Result<ExpenseModel>> addExpense({
     required String title,
     required double amount,
     required String category,
@@ -204,66 +200,84 @@ class ExpenseProvider extends ChangeNotifier {
     required String paymentMethod,
     String notes = '',
   }) async {
-    _isLoading = true;
-    notifyListeners();
-
-    final newExpense = ExpenseModel(
-      id: 'exp_${DateTime.now().millisecondsSinceEpoch}',
+    final tempId = 'exp_${DateTime.now().millisecondsSinceEpoch}';
+    final optimistic = ExpenseModel(
+      id: tempId,
       title: title,
       amount: amount,
       category: category,
       date: date,
       paymentMethod: paymentMethod,
       notes: notes,
+      syncStatus: 'pending',
     );
 
-    // Optimistic UI update
-    _expenses.insert(0, newExpense);
+    // Optimistic insert
+    _expenses.insert(0, optimistic);
+    notifyListeners();
 
     try {
       final response = await _apiClient.post(
         ApiConstants.expenses,
-        data: newExpense.toJson(),
+        data: optimistic.toJson(),
       );
+
       if (response.data != null && response.data is Map<String, dynamic>) {
-        final created = ExpenseModel.fromJson(response.data as Map<String, dynamic>);
-        final idx = _expenses.indexWhere((e) => e.id == newExpense.id);
+        final created = ExpenseModel.fromJson(response.data as Map<String, dynamic>).copyWith(
+          syncStatus: 'synced',
+        );
+        final idx = _expenses.indexWhere((e) => e.id == tempId);
         if (idx != -1) {
           _expenses[idx] = created;
           notifyListeners();
         }
+        return Success(created);
       }
-    } catch (_) {
-      // Local addition remains accessible even if offline
-    }
 
-    _isLoading = false;
-    notifyListeners();
-    return true;
+      // Synced successfully
+      final synced = optimistic.copyWith(syncStatus: 'synced');
+      final idx = _expenses.indexWhere((e) => e.id == tempId);
+      if (idx != -1) {
+        _expenses[idx] = synced;
+        notifyListeners();
+      }
+      return Success(synced);
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      // Mark as pending or failed
+      final idx = _expenses.indexWhere((e) => e.id == tempId);
+      if (idx != -1) {
+        // If 4xx client rejection (e.g. invalid payload), roll back
+        if (failure.statusCode != null && failure.statusCode! >= 400 && failure.statusCode! < 500 && failure.statusCode != 408) {
+          _expenses.removeAt(idx);
+          _errorMessage = failure.message;
+          notifyListeners();
+          return Failure(failure);
+        } else {
+          // Network issue: keep in queue with 'failed' or 'pending' badge
+          _expenses[idx] = optimistic.copyWith(syncStatus: 'failed');
+          _errorMessage = 'Expense saved locally. Pending sync: ${failure.message}';
+          notifyListeners();
+          return Failure(failure);
+        }
+      }
+      return Failure(failure);
+    }
   }
 
-  // Update Expense Model directly
-  Future<bool> updateExpenseModel(ExpenseModel updated) async {
-    final idx = _expenses.indexWhere((e) => e.id == updated.id);
-    if (idx != -1) {
-      _expenses[idx] = updated;
-      notifyListeners();
-
-      try {
-        await _apiClient.put(
-          '${ApiConstants.expenses}/${updated.id}',
-          data: updated.toJson(),
-        );
-      } catch (_) {
-        // Keep optimistic update
-      }
-      return true;
-    }
-    return false;
+  Future<Result<ExpenseModel>> addExpenseModel(ExpenseModel expense) async {
+    return addExpense(
+      title: expense.title,
+      amount: expense.amount,
+      category: expense.category,
+      date: expense.date,
+      paymentMethod: expense.paymentMethod,
+      notes: expense.notes,
+    );
   }
 
-  // Update Expense by fields
-  Future<bool> updateExpense({
+  // Update Expense with explicit Result (S5)
+  Future<Result<ExpenseModel>> updateExpense({
     required String id,
     required String title,
     required double amount,
@@ -273,29 +287,116 @@ class ExpenseProvider extends ChangeNotifier {
     String notes = '',
   }) async {
     final idx = _expenses.indexWhere((e) => e.id == id);
-    final userId = idx != -1 ? _expenses[idx].userId : '';
-    final status = idx != -1 ? _expenses[idx].status : 'Active';
-    final updated = ExpenseModel(
-      id: id,
+    if (idx == -1) {
+      return Failure.fromMessage('Expense not found');
+    }
+
+    final previous = _expenses[idx];
+    final updated = previous.copyWith(
       title: title,
       amount: amount,
       category: category,
       date: date,
       paymentMethod: paymentMethod,
       notes: notes,
-      userId: userId,
-      status: status,
+      syncStatus: 'pending',
     );
-    return updateExpenseModel(updated);
+
+    _expenses[idx] = updated;
+    notifyListeners();
+
+    try {
+      await _apiClient.put(
+        '${ApiConstants.expenses}/$id',
+        data: updated.toJson(),
+      );
+
+      final synced = updated.copyWith(syncStatus: 'synced');
+      final currentIdx = _expenses.indexWhere((e) => e.id == id);
+      if (currentIdx != -1) {
+        _expenses[currentIdx] = synced;
+        notifyListeners();
+      }
+      return Success(synced);
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      final currentIdx = _expenses.indexWhere((e) => e.id == id);
+      if (currentIdx != -1) {
+        if (failure.statusCode != null && failure.statusCode! >= 400 && failure.statusCode! < 500) {
+          // Roll back on permanent error
+          _expenses[currentIdx] = previous;
+          _errorMessage = failure.message;
+          notifyListeners();
+          return Failure(failure);
+        } else {
+          _expenses[currentIdx] = updated.copyWith(syncStatus: 'failed');
+          notifyListeners();
+        }
+      }
+      return Failure(failure);
+    }
   }
 
-  // Delete Expense
-  Future<void> deleteExpense(String id) async {
-    _expenses.removeWhere((e) => e.id == id);
+  // Delete Expense with Rollback (S5)
+  Future<Result<void>> deleteExpense(String id) async {
+    final idx = _expenses.indexWhere((e) => e.id == id);
+    if (idx == -1) return const Success(null);
+
+    final deletedItem = _expenses[idx];
+    _expenses.removeAt(idx);
     notifyListeners();
 
     try {
       await _apiClient.delete('${ApiConstants.expenses}/$id');
-    } catch (_) {}
+      return const Success(null);
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      // Roll back
+      _expenses.insert(idx, deletedItem);
+      _errorMessage = 'Could not delete expense: ${failure.message}';
+      notifyListeners();
+      return Failure(failure);
+    }
+  }
+
+  // Retry sync for an unsynced expense (S5)
+  Future<void> retrySync(String id) async {
+    final idx = _expenses.indexWhere((e) => e.id == id);
+    if (idx == -1) return;
+
+    final item = _expenses[idx];
+    _expenses[idx] = item.copyWith(syncStatus: 'pending');
+    notifyListeners();
+
+    try {
+      await _apiClient.post(
+        ApiConstants.expenses,
+        data: item.toJson(),
+      );
+      final currentIdx = _expenses.indexWhere((e) => e.id == id);
+      if (currentIdx != -1) {
+        _expenses[currentIdx] = item.copyWith(syncStatus: 'synced');
+        notifyListeners();
+      }
+    } catch (e) {
+      final currentIdx = _expenses.indexWhere((e) => e.id == id);
+      if (currentIdx != -1) {
+        _expenses[currentIdx] = item.copyWith(syncStatus: 'failed');
+        notifyListeners();
+      }
+    }
+  }
+
+  // Restore expense for Undo action (U5)
+  void restoreExpense(ExpenseModel expense) {
+    if (!_expenses.any((e) => e.id == expense.id)) {
+      _expenses.insert(0, expense);
+      notifyListeners();
+    }
+  }
+
+  void clearErrorMessage() {
+    _errorMessage = null;
+    notifyListeners();
   }
 }

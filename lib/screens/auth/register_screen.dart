@@ -71,10 +71,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final success = await auth.register(name, email, password);
+    final result = await auth.register(name, email, password);
 
     if (!mounted) return;
-    if (success) {
+    if (result.isSuccess) {
       // Clear demo data and fetch fresh user data from database
       final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
       final splitProvider = Provider.of<SplitProvider>(context, listen: false);
@@ -84,7 +84,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await splitProvider.fetchGroupsAndData();
 
       if (!mounted) return;
-      // Force user to setup 4-digit PIN right after registration
+      // Force user to setup 4-digit PIN right after registration (S3)
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const SetupPinScreen()),
@@ -93,7 +93,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(auth.errorMessage ?? 'Registration failed'),
+          content: Text(result.failureOrNull?.message ?? 'Registration failed'),
           backgroundColor: AppColors.errorRed,
         ),
       );

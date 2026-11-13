@@ -1,23 +1,30 @@
-import 'package:intl/intl.dart';
+import '../logic/money.dart';
 
+/// Central currency formatter rewritten on top of the Money value type.
+/// Guarantees consistent currency representation, paisa precision, and masked privacy support.
 class CurrencyFormatter {
-  static final NumberFormat _formatter = NumberFormat('#,##0.00', 'en_US');
-  static final NumberFormat _compactFormatter = NumberFormat('#,##0', 'en_US');
-
-  static String format(double amount, {bool isMasked = false, bool showDecimals = true}) {
+  static String format(
+    dynamic amount, {
+    bool isMasked = false,
+    bool showDecimals = false,
+  }) {
     if (isMasked) {
       return 'Rs ••••••';
     }
-    if (showDecimals && amount % 1 != 0) {
-      return 'Rs ${_formatter.format(amount)}';
-    }
-    return 'Rs ${_compactFormatter.format(amount)}';
+    final money = amount is Money ? amount : Money.parse(amount);
+    return money.format(showPrefix: true, forceDecimals: showDecimals);
   }
 
-  static String formatPlain(double amount) {
-    if (amount % 1 != 0) {
-      return _formatter.format(amount);
+  static String formatPlain(dynamic amount) {
+    final money = amount is Money ? amount : Money.parse(amount);
+    return money.format(showPrefix: false);
+  }
+
+  static String formatCompact(dynamic amount, {bool isMasked = false}) {
+    if (isMasked) {
+      return 'Rs ••••••';
     }
-    return _compactFormatter.format(amount);
+    final money = amount is Money ? amount : Money.parse(amount);
+    return money.formatCompact(showPrefix: true);
   }
 }

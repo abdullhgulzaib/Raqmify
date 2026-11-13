@@ -2,37 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/logic/money.dart';
+import '../../../core/logic/split_calculator.dart';
+import '../../../core/network/result.dart';
+import '../../../core/utils/money_input_formatter.dart';
 import '../../../models/group_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/split_provider.dart';
-
-class ParticipantSplitItem {
-  final String userId;
-  final String name;
-  final String email;
-  final bool isCurrentUser;
-  bool selected;
-  double amount;
-  double percentage;
-  TextEditingController amountController;
-  TextEditingController pctController;
-
-  ParticipantSplitItem({
-    required this.userId,
-    required this.name,
-    this.email = '',
-    required this.isCurrentUser,
-    this.selected = true,
-    this.amount = 0.0,
-    this.percentage = 0.0,
-  })  : amountController = TextEditingController(text: amount > 0 ? amount.toStringAsFixed(0) : ''),
-        pctController = TextEditingController(text: percentage > 0 ? percentage.toStringAsFixed(1) : '');
-
-  void dispose() {
-    amountController.dispose();
-    pctController.dispose();
-  }
-}
+import 'participant_share_tile.dart';
+import 'split_type_selector.dart';
 
 class CreateSplitExpenseBottomSheet extends StatefulWidget {
   final String? preselectedGroupId;
@@ -161,12 +139,17 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
     super.dispose();
   }
 
+  double _parseTotalAmount() {
+    final cleaned = _amountController.text.replaceAll(',', '').trim();
+    return double.tryParse(cleaned) ?? 0.0;
+  }
+
   void _recalculateSplits() {
-    final total = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    final selectedCount = _participants.where((p) => p.selected).length;
+    final total = _parseTotalAmount();
+    final selectedParticipants = _participants.where((p) => p.selected).toList();
 
     if (_splitType == 'Equal') {
-      if (selectedCount == 0 || total <= 0) {
+      if (selectedParticipants.isEmpty || total <= 0) {
         for (final p in _participants) {
           p.amount = 0.0;
           p.percentage = 0.0;
@@ -175,29 +158,28 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
         return;
       }
 
-      final splitAmount = (total / selectedCount).floorToDouble();
-      final remainder = total - (splitAmount * selectedCount);
-      final splitPct = (100.0 / selectedCount);
+      final shares = SplitCalculator.calculateEqualSplit(
+        total: Money.fromRupees(total),
+        participantIds: selectedParticipants.map((p) => p.userId).toList(),
+      );
 
-      bool remainderAssigned = false;
+      final splitPct = 100.0 / selectedParticipants.length;
+
       for (final p in _participants) {
         if (!p.selected) {
           p.amount = 0.0;
           p.percentage = 0.0;
           p.amountController.text = '0';
         } else {
-          double amt = splitAmount;
-          if (!remainderAssigned && remainder > 0) {
-            amt += remainder;
-            remainderAssigned = true;
-          }
+          final amt = shares[p.userId]?.inRupees ?? 0.0;
           p.amount = amt;
           p.percentage = splitPct;
           p.amountController.text = amt.toStringAsFixed(0);
         }
       }
     } else if (_splitType == 'Percentage') {
-      final splitPct = selectedCount > 0 ? (100.0 / selectedCount) : 0.0;
+      final splitPct = selectedParticipants.isNotEmpty ? (100.0 / selectedParticipants.length) : 0.0;
+      final pctMap = <String, double>{};
       for (final p in _participants) {
         if (!p.selected) {
           p.amount = 0.0;
@@ -209,12 +191,26 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
             p.percentage = splitPct;
             p.pctController.text = splitPct.toStringAsFixed(1);
           }
-          p.amount = (total * p.percentage) / 100.0;
-          p.amountController.text = p.amount.toStringAsFixed(0);
+          pctMap[p.userId] = p.percentage;
         }
       }
+
+      if (total > 0 && pctMap.isNotEmpty) {
+        try {
+          final shares = SplitCalculator.calculatePercentageSplit(
+            total: Money.fromRupees(total),
+            percentages: pctMap,
+          );
+          for (final p in _participants) {
+            if (p.selected) {
+              final amt = shares[p.userId]?.inRupees ?? 0.0;
+              p.amount = amt;
+              p.amountController.text = amt.toStringAsFixed(0);
+            }
+          }
+        } catch (_) {}
+      }
     } else if (_splitType == 'Custom') {
-      // Custom Amount Mode
       final payerIdx = _participants.indexWhere((p) => p.isCurrentUser);
       if (payerIdx != -1 && total > 0) {
         double othersSum = 0.0;
@@ -303,7 +299,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
 
   Future<void> _submitSplit() async {
     final title = _titleController.text.trim();
-    final total = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    final total = _parseTotalAmount();
 
     if (title.isEmpty) {
       setState(() => _errorMessage = 'Please enter an expense title.');
@@ -352,7 +348,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
       };
     }).toList();
 
-    final success = await splitProvider.createSplitExpense(
+    final result = await splitProvider.createSplitExpense(
       title: title,
       totalAmount: total,
       category: _selectedCategory,
@@ -367,7 +363,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
 
     if (mounted) {
       setState(() => _isSubmitting = false);
-      if (success) {
+      if (result is Success) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -384,17 +380,20 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final splitProvider = Provider.of<SplitProvider>(context);
     final groups = splitProvider.groups;
-    final total = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    final total = _parseTotalAmount();
     final activeParticipants = _participants.where((p) => p.selected).toList();
-    final allocatedSum = activeParticipants.fold<double>(0.0, (sum, p) => sum + p.amount);
-    final isMatched = total > 0 && (allocatedSum - total).abs() <= 2.0;
+
+    final sheetBg = isDark ? const Color(0xFF141E1C) : Colors.white;
+    final textHeading = isDark ? Colors.white : AppColors.darkInk;
+    final inputBg = isDark ? const Color(0xFF1B2624) : AppColors.surfaceSubtle;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: sheetBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: SafeArea(
         top: false,
@@ -416,7 +415,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                     width: 44,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: AppColors.borderLight,
+                      color: isDark ? AppColors.darkBorder : AppColors.borderLight,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
@@ -432,7 +431,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: AppColors.lightEmerald,
+                            color: isDark ? const Color(0xFF1A3831) : AppColors.lightEmerald,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(Icons.call_split_rounded, color: AppColors.deepEmerald, size: 22),
@@ -443,7 +442,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                           style: GoogleFonts.outfit(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
-                            color: AppColors.darkInk,
+                            color: textHeading,
                           ),
                         ),
                       ],
@@ -463,15 +462,16 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                     style: GoogleFonts.outfit(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.darkInk,
+                      color: textHeading,
                     ),
                   ),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<String>(
                     initialValue: _selectedGroupId,
+                    dropdownColor: isDark ? const Color(0xFF1B2624) : Colors.white,
                     decoration: InputDecoration(
                       filled: true,
-                      fillColor: AppColors.surfaceSubtle,
+                      fillColor: inputBg,
                       prefixIcon: const Icon(Icons.group_rounded, color: AppColors.deepEmerald, size: 20),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
@@ -484,7 +484,11 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                         value: g.id,
                         child: Text(
                           g.name,
-                          style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w500),
+                          style: GoogleFonts.outfit(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: textHeading,
+                          ),
                         ),
                       );
                     }).toList(),
@@ -507,18 +511,19 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.darkInk,
+                    color: textHeading,
                   ),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _titleController,
+                  style: TextStyle(color: textHeading),
                   decoration: InputDecoration(
                     hintText: 'e.g. Weekly Ration, Biryani, Electricity Bill',
                     hintStyle: GoogleFonts.outfit(color: AppColors.textMuted, fontSize: 14),
                     prefixIcon: const Icon(Icons.receipt_long_rounded, color: AppColors.deepEmerald, size: 20),
                     filled: true,
-                    fillColor: AppColors.surfaceSubtle,
+                    fillColor: inputBg,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -534,30 +539,33 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.darkInk,
+                    color: textHeading,
                   ),
                 ),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _amountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    MoneyInputFormatter(),
+                  ],
                   onChanged: _onTotalAmountChanged,
                   style: GoogleFonts.outfit(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.deepEmerald,
+                    color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                   ),
                   decoration: InputDecoration(
                     prefixText: 'Rs  ',
                     prefixStyle: GoogleFonts.outfit(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: AppColors.deepEmerald,
+                      color: isDark ? const Color(0xFF68D391) : AppColors.deepEmerald,
                     ),
                     hintText: '0',
                     hintStyle: GoogleFonts.outfit(color: AppColors.textMuted, fontSize: 18),
                     filled: true,
-                    fillColor: AppColors.surfaceSubtle,
+                    fillColor: inputBg,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -573,7 +581,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.darkInk,
+                    color: textHeading,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -589,11 +597,11 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                           labelStyle: GoogleFonts.outfit(
                             fontSize: 12,
                             fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
-                            color: isSel ? Colors.white : AppColors.darkInk,
+                            color: isSel ? Colors.white : (isDark ? Colors.white70 : AppColors.darkInk),
                           ),
                           selected: isSel,
                           selectedColor: AppColors.deepEmerald,
-                          backgroundColor: AppColors.surfaceSubtle,
+                          backgroundColor: inputBg,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           onSelected: (val) {
                             if (val) setState(() => _selectedCategory = c);
@@ -605,29 +613,19 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                 ),
                 const SizedBox(height: 18),
 
-                // Split Type Segmented Selector
+                // Split Mode Segmented Selector (Extracted Widget)
                 Text(
                   'Split Mode',
                   style: GoogleFonts.outfit(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.darkInk,
+                    color: textHeading,
                   ),
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSubtle,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      _buildSplitTypeTab('Equal', 'Equal Split', Icons.balance_rounded),
-                      _buildSplitTypeTab('Custom', 'Exact Amount', Icons.tune_rounded),
-                      _buildSplitTypeTab('Percentage', 'Percentage %', Icons.percent_rounded),
-                    ],
-                  ),
+                SplitTypeSelector(
+                  selectedType: _splitType,
+                  onTypeChanged: _onSplitTypeChanged,
                 ),
                 const SizedBox(height: 18),
 
@@ -640,7 +638,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                       style: GoogleFonts.outfit(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.darkInk,
+                        color: textHeading,
                       ),
                     ),
                     TextButton.icon(
@@ -659,7 +657,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                 ),
                 const SizedBox(height: 8),
 
-                // Participants List
+                // Participants List (Extracted Tile Widget)
                 ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -667,209 +665,40 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                   separatorBuilder: (context, index) => const SizedBox(height: 8),
                   itemBuilder: (context, idx) {
                     final p = _participants[idx];
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: p.selected ? Colors.white : AppColors.surfaceSubtle.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: p.selected ? AppColors.borderLight : Colors.transparent,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          // Checkbox
-                          Checkbox(
-                            value: p.selected,
-                            activeColor: AppColors.deepEmerald,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                            onChanged: (_) => _toggleParticipant(idx),
-                          ),
-
-                          // Initial Circle
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: p.isCurrentUser
-                                ? AppColors.deepEmerald
-                                : AppColors.deepEmerald.withValues(alpha: 0.12),
-                            child: Text(
-                              p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',
-                              style: GoogleFonts.outfit(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: p.isCurrentUser ? Colors.white : AppColors.deepEmerald,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-
-                          // Name & Payer badge
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p.name,
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 13,
-                                    fontWeight: p.isCurrentUser ? FontWeight.w700 : FontWeight.w600,
-                                    color: p.selected ? AppColors.darkInk : AppColors.textMuted,
-                                  ),
-                                ),
-                                if (p.isCurrentUser)
-                                  Text(
-                                    'Payer (You paid)',
-                                    style: GoogleFonts.outfit(
-                                      fontSize: 11,
-                                      color: AppColors.teal,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-
-                          // Input or Share preview based on mode
-                          if (_splitType == 'Equal')
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: p.selected ? AppColors.lightEmerald : AppColors.surfaceSubtle,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                p.selected ? 'Rs ${p.amount.toStringAsFixed(0)}' : 'Excluded',
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: p.selected ? AppColors.deepEmerald : AppColors.textMuted,
-                                ),
-                              ),
-                            )
-                          else if (_splitType == 'Custom')
-                            SizedBox(
-                              width: 100,
-                              child: TextField(
-                                controller: p.amountController,
-                                enabled: p.selected,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                textAlign: TextAlign.right,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.deepEmerald,
-                                ),
-                                decoration: InputDecoration(
-                                  prefixText: 'Rs ',
-                                  prefixStyle: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                  filled: true,
-                                  fillColor: p.selected ? AppColors.surfaceSubtle : Colors.grey[200],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                                onChanged: (val) {
-                                  setState(() {
-                                    p.amount = double.tryParse(val.trim()) ?? 0.0;
-                                    final payerIdx = _participants.indexWhere((item) => item.isCurrentUser);
-                                    if (payerIdx != -1 && idx != payerIdx && total > 0) {
-                                      double others = 0.0;
-                                      for (int i = 0; i < _participants.length; i++) {
-                                        if (i != payerIdx && _participants[i].selected) {
-                                          others += _participants[i].amount;
-                                        }
-                                      }
-                                      final remaining = (total - others) > 0 ? (total - others) : 0.0;
-                                      _participants[payerIdx].amount = remaining;
-                                      _participants[payerIdx].amountController.text = remaining.toStringAsFixed(0);
-                                    }
-                                  });
-                                },
-                              ),
-                            )
-                          else if (_splitType == 'Percentage')
-                            SizedBox(
-                              width: 80,
-                              child: TextField(
-                                controller: p.pctController,
-                                enabled: p.selected,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                textAlign: TextAlign.right,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.deepEmerald,
-                                ),
-                                decoration: InputDecoration(
-                                  suffixText: '%',
-                                  suffixStyle: GoogleFonts.outfit(fontSize: 12, color: AppColors.textMuted),
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                  filled: true,
-                                  fillColor: p.selected ? AppColors.surfaceSubtle : Colors.grey[200],
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                                onChanged: (val) {
-                                  setState(() {
-                                    final pct = double.tryParse(val.trim()) ?? 0.0;
-                                    p.percentage = pct;
-                                    p.amount = (total * pct) / 100.0;
-                                    p.amountController.text = p.amount.toStringAsFixed(0);
-                                  });
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
+                    return ParticipantShareTile(
+                      participant: p,
+                      splitType: _splitType,
+                      totalAmount: total,
+                      onToggle: () => _toggleParticipant(idx),
+                      onAmountChanged: (val) {
+                        setState(() {
+                          p.amount = double.tryParse(val.replaceAll(',', '').trim()) ?? 0.0;
+                          final payerIdx = _participants.indexWhere((item) => item.isCurrentUser);
+                          if (payerIdx != -1 && idx != payerIdx && total > 0) {
+                            double others = 0.0;
+                            for (int i = 0; i < _participants.length; i++) {
+                              if (i != payerIdx && _participants[i].selected) {
+                                others += _participants[i].amount;
+                              }
+                            }
+                            final remaining = (total - others) > 0 ? (total - others) : 0.0;
+                            _participants[payerIdx].amount = remaining;
+                            _participants[payerIdx].amountController.text = remaining.toStringAsFixed(0);
+                          }
+                        });
+                      },
+                      onPercentageChanged: (val) {
+                        setState(() {
+                          final pct = double.tryParse(val.trim()) ?? 0.0;
+                          p.percentage = pct;
+                          p.amount = (total * pct) / 100.0;
+                          p.amountController.text = p.amount.toStringAsFixed(0);
+                        });
+                      },
                     );
                   },
                 ),
                 const SizedBox(height: 16),
-
-                // Live Reconciliation Status Pill
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isMatched
-                        ? AppColors.successGreen.withValues(alpha: 0.1)
-                        : AppColors.pendingOrange.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isMatched
-                          ? AppColors.successGreen.withValues(alpha: 0.3)
-                          : AppColors.pendingOrange.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isMatched ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                        size: 18,
-                        color: isMatched ? AppColors.successGreen : AppColors.pendingOrange,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          isMatched
-                              ? 'Allocated: Rs ${allocatedSum.toStringAsFixed(0)} (100% matched)'
-                              : 'Allocated: Rs ${allocatedSum.toStringAsFixed(0)} of Rs ${total.toStringAsFixed(0)} (Rs ${(total - allocatedSum).abs().toStringAsFixed(0)} ${(total > allocatedSum) ? 'remaining' : 'over-allocated'})',
-                          style: GoogleFonts.outfit(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isMatched ? AppColors.successGreen : AppColors.pendingOrange,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
 
                 // Error message if any
                 if (_errorMessage != null)
@@ -888,12 +717,13 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                 // Notes / Remarks (Optional)
                 TextField(
                   controller: _notesController,
+                  style: TextStyle(color: textHeading),
                   decoration: InputDecoration(
                     hintText: 'Add an optional note (e.g. Paid via Easypaisa)',
                     hintStyle: GoogleFonts.outfit(color: AppColors.textMuted, fontSize: 13),
                     prefixIcon: const Icon(Icons.notes_rounded, color: AppColors.textMuted, size: 18),
                     filled: true,
-                    fillColor: AppColors.surfaceSubtle,
+                    fillColor: inputBg,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -932,50 +762,6 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSplitTypeTab(String type, String label, IconData icon) {
-    final isSel = _splitType == type;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _onSplitTypeChanged(type),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSel ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: isSel
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: isSel ? AppColors.deepEmerald : AppColors.textMuted,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                style: GoogleFonts.outfit(
-                  fontSize: 11,
-                  fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
-                  color: isSel ? AppColors.deepEmerald : AppColors.textMuted,
-                ),
-              ),
-            ],
           ),
         ),
       ),

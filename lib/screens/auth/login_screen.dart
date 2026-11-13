@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -32,13 +33,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final success = await auth.login(
+    final result = await auth.login(
       _emailController.text.trim(),
       _passwordController.text.trim(),
     );
 
     if (!mounted) return;
-    if (success) {
+    if (result.isSuccess) {
       // Clear sample data and fetch actual data from database
       final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
       final splitProvider = Provider.of<SplitProvider>(context, listen: false);
@@ -60,7 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(auth.errorMessage ?? 'Login failed'),
+          content: Text(result.failureOrNull?.message ?? 'Login failed'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -68,6 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleDemoLogin() async {
+    if (!kDebugMode) return;
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
     final splitProvider = Provider.of<SplitProvider>(context, listen: false);
@@ -260,24 +262,25 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                             ),
                           ),
-                          const SizedBox(height: 14),
-
-                          SizedBox(
-                            height: 50,
-                            child: OutlinedButton.icon(
-                              onPressed: _handleDemoLogin,
-                              icon: const Icon(Icons.bolt, color: AppColors.mutedGold),
-                              label: const Text('Quick Demo Mode (Hostel Room 304)'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.deepEmerald,
-                                side: const BorderSide(
-                                  color: AppColors.mutedGold,
-                                  width: 1.2,
+                          if (kDebugMode) ...[
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              height: 50,
+                              child: OutlinedButton.icon(
+                                onPressed: _handleDemoLogin,
+                                icon: const Icon(Icons.bolt, color: AppColors.mutedGold),
+                                label: const Text('Quick Demo Mode (Hostel Room 304)'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.deepEmerald,
+                                  side: const BorderSide(
+                                    color: AppColors.mutedGold,
+                                    width: 1.2,
+                                  ),
+                                  shape: const StadiumBorder(),
                                 ),
-                                shape: const StadiumBorder(),
                               ),
                             ),
-                          ),
+                          ],
                           const SizedBox(height: 24),
 
                           Row(

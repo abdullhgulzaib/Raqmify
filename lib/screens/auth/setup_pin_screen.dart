@@ -115,7 +115,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
   Future<void> _validateAndSave() async {
     if (_firstPin != _confirmPin) {
-      HapticFeedback.heavyImpact();
+      await HapticFeedback.heavyImpact();
       setState(() {
         _hasError = true;
         _errorMessage = 'PINs did not match. Please try again.';
@@ -129,8 +129,9 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     }
 
     setState(() => _isSaving = true);
-    HapticFeedback.mediumImpact();
+    await HapticFeedback.mediumImpact();
 
+    if (!mounted) return;
     final auth = Provider.of<AuthProvider>(context, listen: false);
     await auth.setVaultPin(_firstPin);
     if (_hasBiometricHardware) {
