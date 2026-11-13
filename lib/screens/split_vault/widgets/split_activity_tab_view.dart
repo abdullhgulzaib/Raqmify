@@ -8,6 +8,7 @@ import '../../../core/widgets/app_empty_state.dart';
 import '../../../models/split_expense_model.dart';
 import '../../../providers/split_provider.dart';
 import '../../auth/widgets/security_verification_modal.dart';
+import 'settlement_proof_modal.dart';
 
 class SplitActivityTabView extends StatefulWidget {
   final SplitProvider splitProvider;
@@ -283,55 +284,139 @@ class _SplitActivityTabViewState extends State<SplitActivityTabView> {
                               const SizedBox(height: 8),
                               ...expense.splits.map((s) {
                                 final isUserShare = s.userId == widget.currentUserId;
+                                final canSubmitProof = isUserShare && !isPayer && s.status == 'Unpaid';
+                                final canReviewProof = isPayer && !isUserShare && s.status == 'UnderReview';
+
                                 return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  padding: const EdgeInsets.symmetric(vertical: 6),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        isUserShare ? '${s.name} (You)' : s.name,
-                                        style: GoogleFonts.outfit(
-                                          fontSize: 13,
-                                          fontWeight: isUserShare ? FontWeight.w700 : FontWeight.w500,
-                                          color: isDark ? Colors.white70 : AppColors.darkInk,
-                                        ),
-                                      ),
                                       Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          Text(
-                                            CurrencyFormatter.format(s.amount, isMasked: widget.isMasked),
-                                            style: GoogleFonts.outfit(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w700,
-                                              color: isDark ? Colors.white : AppColors.darkInk,
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  isUserShare ? '${s.name} (You)' : s.name,
+                                                  style: GoogleFonts.outfit(
+                                                    fontSize: 13,
+                                                    fontWeight: isUserShare ? FontWeight.w700 : FontWeight.w500,
+                                                    color: isDark ? Colors.white70 : AppColors.darkInk,
+                                                  ),
+                                                ),
+                                                if (s.proofTid != null && s.proofTid!.isNotEmpty)
+                                                  Text(
+                                                    'TID: ${s.proofTid}',
+                                                    style: GoogleFonts.outfit(
+                                                      fontSize: 10,
+                                                      color: AppColors.pendingOrange,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                           ),
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: s.status == 'Settled'
-                                                  ? AppColors.successGreen.withValues(alpha: 0.15)
-                                                  : (s.status == 'UnderReview'
-                                                      ? AppColors.pendingOrange.withValues(alpha: 0.15)
-                                                      : Colors.grey.withValues(alpha: 0.15)),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              s.status,
-                                              style: GoogleFonts.outfit(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w700,
-                                                color: s.status == 'Settled'
-                                                    ? AppColors.successGreen
-                                                    : (s.status == 'UnderReview'
-                                                        ? AppColors.pendingOrange
-                                                        : AppColors.textMuted),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                CurrencyFormatter.format(s.amount, isMasked: widget.isMasked),
+                                                style: GoogleFonts.outfit(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: isDark ? Colors.white : AppColors.darkInk,
+                                                ),
                                               ),
-                                            ),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: s.status == 'Settled' || s.status == 'Verified'
+                                                      ? AppColors.successGreen.withValues(alpha: 0.15)
+                                                      : (s.status == 'UnderReview'
+                                                          ? AppColors.pendingOrange.withValues(alpha: 0.15)
+                                                          : Colors.grey.withValues(alpha: 0.15)),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  s.status,
+                                                  style: GoogleFonts.outfit(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: s.status == 'Settled' || s.status == 'Verified'
+                                                        ? AppColors.successGreen
+                                                        : (s.status == 'UnderReview'
+                                                            ? AppColors.pendingOrange
+                                                            : AppColors.textMuted),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
+                                      if (canSubmitProof || canReviewProof) ...[
+                                        const SizedBox(height: 4),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: canSubmitProof
+                                              ? InkWell(
+                                                  onTap: () {
+                                                    SettlementProofModal.showSubmitProof(
+                                                      context: context,
+                                                      expenseId: expense.id,
+                                                      expenseTitle: expense.title,
+                                                      creditorName: expense.paidByName,
+                                                      amount: s.amount,
+                                                      userId: widget.currentUserId,
+                                                    );
+                                                  },
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.deepEmerald.withValues(alpha: 0.1),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      'Submit Proof TID',
+                                                      style: GoogleFonts.outfit(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: AppColors.deepEmerald,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                )
+                                              : InkWell(
+                                                  onTap: () {
+                                                    SettlementProofModal.showReviewProof(
+                                                      context: context,
+                                                      expense: expense,
+                                                      share: s,
+                                                    );
+                                                  },
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.pendingOrange.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      'Review Proof',
+                                                      style: GoogleFonts.outfit(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: AppColors.pendingOrange,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 );

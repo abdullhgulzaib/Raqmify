@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_icons.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_empty_state.dart';
+import '../../../models/split_expense_model.dart';
 import '../../../providers/split_provider.dart';
 import 'settlement_proof_modal.dart';
 
@@ -124,7 +125,87 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+
+            // Pending Proof Verifications Section
+            if (pendingVerifications.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF2A2215) : const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppColors.pendingOrange.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.pending_actions_rounded, color: AppColors.pendingOrange, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Pending Settlement Proofs (${pendingVerifications.length})',
+                          style: GoogleFonts.outfit(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : AppColors.darkInk,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ...pendingVerifications.map((item) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${item.share.name} • Rs ${item.share.amount.toStringAsFixed(0)}',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? Colors.white : AppColors.darkInk,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${item.expense.title} • TID: ${item.share.proofTid ?? "Provided"}',
+                                    style: GoogleFonts.outfit(fontSize: 11, color: AppColors.textMuted),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.deepEmerald,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                SettlementProofModal.showReviewProof(
+                                  context: context,
+                                  expense: item.expense,
+                                  share: item.share,
+                                );
+                              },
+                              child: const Text('Review', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
 
             // Simplified Net Balances Header with Aggregate Toggle (S8)
             Row(
@@ -319,14 +400,24 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                 else
                                   TextButton.icon(
                                     onPressed: () {
-                                      final exp = splitProvider.groupExpenses.firstWhere(
-                                        (e) => e.splits.any((s) => s.userId == currentUserId && s.status != 'Settled'),
-                                        orElse: () => splitProvider.groupExpenses.first,
-                                      );
+                                      SplitExpenseModel? targetExp;
+                                      if (debt.relatedExpenseIds.isNotEmpty) {
+                                        targetExp = splitProvider.groupExpenses
+                                            .where((e) => debt.relatedExpenseIds.contains(e.id))
+                                            .firstOrNull;
+                                      }
+                                      targetExp ??= splitProvider.groupExpenses
+                                          .where((e) => e.splits.any((s) => s.userId == currentUserId && s.status != 'Settled'))
+                                          .firstOrNull;
+                                      targetExp ??= splitProvider.groupExpenses.firstOrNull;
+
+                                      final expId = targetExp?.id ?? 'exp_${DateTime.now().millisecondsSinceEpoch}';
+                                      final expTitle = targetExp?.title ?? 'Settlement Payment';
+
                                       SettlementProofModal.showSubmitProof(
                                         context: context,
-                                        expenseId: exp.id,
-                                        expenseTitle: exp.title,
+                                        expenseId: expId,
+                                        expenseTitle: expTitle,
                                         creditorName: debt.toUserName,
                                         amount: debt.netAmount.inRupees,
                                         userId: currentUserId,

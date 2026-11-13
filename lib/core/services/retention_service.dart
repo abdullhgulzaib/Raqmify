@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/expense_model.dart';
 import '../constants/api_constants.dart';
 import '../network/api_client.dart';
@@ -20,9 +21,29 @@ class RetentionStatus {
 
 class RetentionService {
   final ApiClient _apiClient = ApiClient();
+  static const String _kRetentionDismissedKey = 'retention_alert_dismissed';
+
+  Future<bool> isRetentionNoticeDismissed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kRetentionDismissedKey) ?? false;
+  }
+
+  Future<void> dismissRetentionNotice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kRetentionDismissedKey, true);
+  }
+
+  Future<void> resetRetentionNoticeDismissal() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kRetentionDismissedKey);
+  }
 
   /// Checks server cleanup status, falling back to client-side calculation if endpoint unavailable (F2).
   Future<RetentionStatus?> checkCleanupStatus(List<ExpenseModel> localExpenses) async {
+    if (await isRetentionNoticeDismissed()) {
+      return null;
+    }
+
     try {
       final res = await _apiClient.get(ApiConstants.cleanupStatus);
       if (res.data != null && res.data is Map<String, dynamic>) {

@@ -342,6 +342,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
     final payload = activeParticipants.map((p) {
       return {
         'userId': p.userId,
+        'user': p.userId,
         'name': p.name.replaceAll(' (You)', ''),
         'amount': p.amount,
         'percentage': p.percentage,

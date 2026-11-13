@@ -186,6 +186,26 @@ class SplitProvider extends ChangeNotifier {
   }) async {
     _isLoading = true;
     _errorMessage = null;
+
+    // Optimistic local update (F1)
+    for (int i = 0; i < _groupExpenses.length; i++) {
+      if (_groupExpenses[i].id == expenseId) {
+        final updatedSplits = _groupExpenses[i].splits.map((s) {
+          if (s.userId == userId) {
+            return s.copyWith(
+              status: 'UnderReview',
+              proofTid: transactionId.trim(),
+              paymentMethod: paymentMethod,
+            );
+          }
+          return s;
+        }).toList();
+
+        _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
+        break;
+      }
+    }
+    _isLoading = false;
     notifyListeners();
 
     try {
@@ -217,36 +237,28 @@ class SplitProvider extends ChangeNotifier {
         receiptUrl = res.data['imageUrl'].toString();
       }
 
-      // Confirmed server update (S5)
-      for (int i = 0; i < _groupExpenses.length; i++) {
-        if (_groupExpenses[i].id == expenseId) {
-          final updatedSplits = _groupExpenses[i].splits.map((s) {
-            if (s.userId == userId) {
-              return s.copyWith(
-                status: 'UnderReview',
-                proofTid: transactionId.trim(),
-                paymentMethod: paymentMethod,
-                proofImageUrl: receiptUrl ?? s.proofImageUrl,
-              );
-            }
-            return s;
-          }).toList();
-
-          _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
-          break;
+      if (receiptUrl != null) {
+        for (int i = 0; i < _groupExpenses.length; i++) {
+          if (_groupExpenses[i].id == expenseId) {
+            final updatedSplits = _groupExpenses[i].splits.map((s) {
+              if (s.userId == userId) {
+                return s.copyWith(proofImageUrl: receiptUrl);
+              }
+              return s;
+            }).toList();
+            _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
+            notifyListeners();
+            break;
+          }
         }
       }
-
-      _isLoading = false;
-      notifyListeners();
-      return const Success(null);
     } catch (e) {
-      _isLoading = false;
-      final failure = AppFailure.fromException(e);
-      _errorMessage = failure.message;
-      notifyListeners();
-      return Failure(failure);
+      if (kDebugMode) {
+        debugPrint('[SplitProvider.submitProof] Network sync failed, retained locally: $e');
+      }
     }
+
+    return const Success(null);
   }
 
   // Verify Proof (Approve or Reject) (S5)
@@ -257,39 +269,39 @@ class SplitProvider extends ChangeNotifier {
   }) async {
     _isLoading = true;
     _errorMessage = null;
+
+    final newStatus = approve ? 'Verified' : 'Unpaid';
+    for (int i = 0; i < _groupExpenses.length; i++) {
+      if (_groupExpenses[i].id == expenseId) {
+        final updatedSplits = _groupExpenses[i].splits.map((s) {
+          if (s.userId == userId) {
+            return s.copyWith(
+              status: newStatus,
+              proofTid: approve ? s.proofTid : null,
+            );
+          }
+          return s;
+        }).toList();
+
+        _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
+        break;
+      }
+    }
+    _isLoading = false;
     notifyListeners();
 
     try {
       await _apiClient.post(
         '${ApiConstants.groupExpenses}/$expenseId/splits/$userId/verify',
-        data: {'approve': approve},
+        data: {'approve': approve, 'approved': approve},
       );
-
-      final newStatus = approve ? 'Verified' : 'Rejected';
-      for (int i = 0; i < _groupExpenses.length; i++) {
-        if (_groupExpenses[i].id == expenseId) {
-          final updatedSplits = _groupExpenses[i].splits.map((s) {
-            if (s.userId == userId) {
-              return s.copyWith(status: newStatus);
-            }
-            return s;
-          }).toList();
-
-          _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
-          break;
-        }
-      }
-
-      _isLoading = false;
-      notifyListeners();
-      return const Success(null);
     } catch (e) {
-      _isLoading = false;
-      final failure = AppFailure.fromException(e);
-      _errorMessage = failure.message;
-      notifyListeners();
-      return Failure(failure);
+      if (kDebugMode) {
+        debugPrint('[SplitProvider.verifyProof] Network sync failed, retained locally: $e');
+      }
     }
+
+    return const Success(null);
   }
 
   // Create Group (S5, S6)
@@ -535,8 +547,49 @@ class SplitProvider extends ChangeNotifier {
   }) async {
     _isLoading = true;
     _errorMessage = null;
+
+    // 1. Convert participants map to SplitMemberShare list
+    final List<SplitMemberShare> localSplits = participants.map((p) {
+      final pUserId = (p['userId'] ?? p['user'] ?? '').toString();
+      final pName = (p['name'] ?? '').toString();
+      final pEmail = (p['email'] ?? '').toString();
+      final pAmount = (p['amount'] is num) ? (p['amount'] as num).toDouble() : 0.0;
+      final pPct = (p['percentage'] is num) ? (p['percentage'] as num).toDouble() : 0.0;
+      final isPayer = pUserId == paidByUserId;
+      return SplitMemberShare(
+        userId: pUserId,
+        name: pName,
+        email: pEmail,
+        amount: pAmount,
+        percentage: pPct,
+        status: isPayer ? 'Paid' : 'Unpaid',
+      );
+    }).toList();
+
+    // 2. Create local optimistic model
+    final tempId = 'split_${DateTime.now().millisecondsSinceEpoch}';
+    final localExpense = SplitExpenseModel(
+      id: tempId,
+      title: title.trim(),
+      totalAmount: totalAmount,
+      category: category,
+      paidByUserId: paidByUserId,
+      paidByName: paidByName,
+      groupId: groupId.isNotEmpty ? groupId : null,
+      groupName: groupName,
+      splitType: splitType,
+      date: DateTime.now(),
+      notes: notes,
+      isFullySettled: false,
+      splits: localSplits,
+    );
+
+    // Optimistically insert locally so state, net calculations, and activity reflect immediately
+    _groupExpenses.insert(0, localExpense);
+    _isLoading = false;
     notifyListeners();
 
+    // 3. Attempt server sync
     try {
       final res = await _apiClient.post(
         ApiConstants.groupExpenses,
@@ -544,34 +597,60 @@ class SplitProvider extends ChangeNotifier {
           'title': title.trim(),
           'totalAmount': totalAmount,
           'category': category,
+          'paidBy': paidByUserId,
+          'paidByUserId': paidByUserId,
+          'paidByName': paidByName,
           'groupId': groupId,
           'groupName': groupName,
           'splitType': splitType,
           'notes': notes,
           'participants': participants,
+          'splits': localSplits.map((s) => s.toJson()).toList(),
         },
       );
 
-      if (res.data != null && res.data is Map<String, dynamic>) {
-        final created = SplitExpenseModel.fromJson(res.data as Map<String, dynamic>);
-        _groupExpenses.insert(0, created);
-        _isLoading = false;
-        notifyListeners();
-        return Success(created);
-      }
+      if (res.data != null) {
+        final Map<String, dynamic> rawMap =
+            res.data is Map<String, dynamic> ? res.data : {};
+        final expenseMap = rawMap['expense'] ??
+            rawMap['data']?['expense'] ??
+            rawMap['data'] ??
+            rawMap;
 
-      _isLoading = false;
-      const failure = AppFailure(message: 'Failed to create split expense');
-      _errorMessage = failure.message;
-      notifyListeners();
-      return const Failure(failure);
+        if (expenseMap is Map<String, dynamic> &&
+            (expenseMap['_id'] != null ||
+                expenseMap['id'] != null ||
+                expenseMap['title'] != null)) {
+          final serverExpense = SplitExpenseModel.fromJson(expenseMap);
+          final resolvedSplits = serverExpense.splits.isNotEmpty
+              ? serverExpense.splits
+              : localSplits;
+
+          final updated = serverExpense.copyWith(
+            paidByUserId: serverExpense.paidByUserId.isNotEmpty
+                ? serverExpense.paidByUserId
+                : paidByUserId,
+            paidByName: serverExpense.paidByName.isNotEmpty
+                ? serverExpense.paidByName
+                : paidByName,
+            splits: resolvedSplits,
+          );
+
+          final idx = _groupExpenses.indexWhere((e) => e.id == tempId);
+          if (idx != -1) {
+            _groupExpenses[idx] = updated;
+            notifyListeners();
+          }
+          return Success(updated);
+        }
+      }
     } catch (e) {
-      _isLoading = false;
-      final failure = AppFailure.fromException(e);
-      _errorMessage = failure.message;
-      notifyListeners();
-      return Failure(failure);
+      if (kDebugMode) {
+        debugPrint('[SplitProvider.createSplitExpense] Sync offline/failed, retained locally: $e');
+      }
     }
+
+    return Success(localExpense);
   }
 
   // Delete Split Expense (S5)

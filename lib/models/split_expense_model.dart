@@ -47,22 +47,35 @@ class SplitMemberShare {
 
   factory SplitMemberShare.fromJson(Map<String, dynamic> json) {
     final proof = json['proof'] as Map<String, dynamic>?;
+
+    String resolvedUserId = '';
+    if (json['userId'] != null && json['userId'].toString().isNotEmpty) {
+      resolvedUserId = json['userId'].toString();
+    } else if (json['user'] != null) {
+      if (json['user'] is String) {
+        resolvedUserId = json['user'];
+      } else if (json['user'] is Map) {
+        resolvedUserId = json['user']['_id']?.toString() ?? json['user']['id']?.toString() ?? '';
+      }
+    }
+
     return SplitMemberShare(
-      userId: json['user'] is String ? json['user'] : (json['user']?['_id'] ?? ''),
-      name: json['name'] ?? '',
-      email: json['email'] ?? '',
+      userId: resolvedUserId,
+      name: json['name'] ?? (json['user'] is Map ? json['user']['name'] ?? '' : ''),
+      email: json['email'] ?? (json['user'] is Map ? json['user']['email'] ?? '' : ''),
       amount: (json['amount'] is num) ? (json['amount'] as num).toDouble() : 0.0,
       percentage: (json['percentage'] is num) ? (json['percentage'] as num).toDouble() : 0.0,
       status: json['status'] ?? 'Unpaid',
-      proofTid: proof?['transactionId'] ?? proof?['tid'],
-      proofImageUrl: proof?['imageUrl'] ?? proof?['receiptUrl'],
-      paymentMethod: proof?['paymentMethod'],
+      proofTid: proof?['transactionId'] ?? proof?['tid'] ?? json['proofTid'],
+      proofImageUrl: proof?['imageUrl'] ?? proof?['receiptUrl'] ?? json['proofImageUrl'],
+      paymentMethod: proof?['paymentMethod'] ?? json['paymentMethod'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'user': userId,
+      'userId': userId,
       'name': name,
       'email': email,
       'amount': amount,
@@ -73,6 +86,9 @@ class SplitMemberShare {
         'imageUrl': proofImageUrl,
         'paymentMethod': paymentMethod,
       },
+      'proofTid': proofTid,
+      'proofImageUrl': proofImageUrl,
+      'paymentMethod': paymentMethod,
     };
   }
 
@@ -160,7 +176,7 @@ class SplitExpenseModel {
   }
 
   factory SplitExpenseModel.fromJson(Map<String, dynamic> json) {
-    var rawSplits = json['splits'] as List<dynamic>? ?? [];
+    var rawSplits = (json['splits'] ?? json['participants']) as List<dynamic>? ?? [];
     List<SplitMemberShare> parsedSplits = rawSplits
         .map((s) => SplitMemberShare.fromJson(s as Map<String, dynamic>))
         .toList();
@@ -172,15 +188,35 @@ class SplitExpenseModel {
       parsedDate = DateTime.now();
     }
 
+    String uid = '';
+    if (json['paidByUserId'] != null && json['paidByUserId'].toString().isNotEmpty) {
+      uid = json['paidByUserId'].toString();
+    } else if (json['paidBy'] != null) {
+      if (json['paidBy'] is String) {
+        uid = json['paidBy'];
+      } else if (json['paidBy'] is Map) {
+        uid = json['paidBy']['_id']?.toString() ?? json['paidBy']['id']?.toString() ?? '';
+      }
+    }
+
+    String gid = '';
+    if (json['groupId'] != null) {
+      if (json['groupId'] is String) {
+        gid = json['groupId'];
+      } else if (json['groupId'] is Map) {
+        gid = json['groupId']['_id']?.toString() ?? json['groupId']['id']?.toString() ?? '';
+      }
+    }
+
     return SplitExpenseModel(
       id: json['_id'] ?? json['id'] ?? '',
       title: json['title'] ?? 'Shared Expense',
       totalAmount: (json['totalAmount'] is num) ? (json['totalAmount'] as num).toDouble() : 0.0,
       category: json['category'] ?? 'Food',
-      paidByUserId: json['paidBy'] is String ? json['paidBy'] : (json['paidBy']?['_id'] ?? ''),
-      paidByName: json['paidByName'] ?? '',
-      groupId: json['groupId'] is String ? json['groupId'] : (json['groupId']?['_id'] ?? ''),
-      groupName: json['groupName'] ?? '',
+      paidByUserId: uid,
+      paidByName: json['paidByName'] ?? (json['paidBy'] is Map ? json['paidBy']['name'] ?? '' : ''),
+      groupId: gid.isNotEmpty ? gid : null,
+      groupName: json['groupName'] ?? (json['groupId'] is Map ? json['groupId']['name'] ?? '' : ''),
       splitType: json['splitType'] ?? 'Equal',
       date: parsedDate,
       notes: json['notes'] ?? '',
@@ -192,10 +228,12 @@ class SplitExpenseModel {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      '_id': id,
       'title': title,
       'totalAmount': totalAmount,
       'category': category,
       'paidBy': paidByUserId,
+      'paidByUserId': paidByUserId,
       'paidByName': paidByName,
       'groupId': groupId,
       'groupName': groupName,
@@ -204,6 +242,7 @@ class SplitExpenseModel {
       'notes': notes,
       'isFullySettled': isFullySettled,
       'splits': splits.map((s) => s.toJson()).toList(),
+      'participants': splits.map((s) => s.toJson()).toList(),
     };
   }
 

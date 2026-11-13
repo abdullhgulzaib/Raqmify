@@ -11,6 +11,7 @@ class RetentionAlertBanner extends StatelessWidget {
   final List<ExpenseModel> expenses;
   final String userName;
   final String userEmail;
+  final VoidCallback? onDismiss;
 
   const RetentionAlertBanner({
     super.key,
@@ -18,6 +19,7 @@ class RetentionAlertBanner extends StatelessWidget {
     required this.expenses,
     required this.userName,
     required this.userEmail,
+    this.onDismiss,
   });
 
   @override
@@ -70,6 +72,17 @@ class RetentionAlertBanner extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onDismiss != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: isDark ? Colors.white70 : const Color(0xFF991B1B),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  tooltip: 'Dismiss alert',
+                  onPressed: onDismiss,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 6),
@@ -91,6 +104,14 @@ class RetentionAlertBanner extends StatelessWidget {
                   userEmail: userEmail,
                   expenses: expenses,
                   periodName: 'Retention Backup (Past 60 Days)',
+                );
+                onDismiss?.call();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('PDF statement exported. Retention notice dismissed.'),
+                    backgroundColor: AppColors.deepEmerald,
+                    behavior: SnackBarBehavior.floating,
+                  ),
                 );
               },
               icon: const Icon(AppIcons.download, size: 16),

@@ -115,6 +115,10 @@ class _DashboardTabState extends State<DashboardTab> {
                   expenses: expenseProvider.expenses,
                   userName: user?.name ?? 'User',
                   userEmail: user?.email ?? '',
+                  onDismiss: () async {
+                    await RetentionService().dismissRetentionNotice();
+                    if (mounted) setState(() => _retentionStatus = null);
+                  },
                 ),
 
               // 3. Main Total Balance & Daily Average Card (Q2, U3)
