@@ -41,6 +41,11 @@ class _DashboardTabState extends State<DashboardTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final notif = Provider.of<NotificationProvider>(context, listen: false);
+      if (auth.currentUser != null) {
+        notif.setActiveUser(auth.currentUser!.id);
+      }
       _checkRetention();
     });
   }

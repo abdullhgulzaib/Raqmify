@@ -64,15 +64,22 @@ class _SplitActivityTabViewState extends State<SplitActivityTabView> {
     await provider.deleteSplitExpense(expense.id);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
         SnackBar(
           content: Text('Expense "${expense.title}" deleted.'),
           backgroundColor: AppColors.deepEmerald,
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.horizontal,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
           action: SnackBarAction(
             label: 'Undo',
             textColor: AppColors.teal,
             onPressed: () {
+              messenger.hideCurrentSnackBar();
               provider.restoreSplitExpense(expense);
             },
           ),

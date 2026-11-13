@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../providers/split_provider.dart';
 import '../main_navigation_screen.dart';
 import 'login_screen.dart';
@@ -91,10 +92,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
     final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+    final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
 
     await auth.demoLogin();
     expenseProvider.loadDemoData();
     splitProvider.loadDemoData();
+    notifProvider.clearData();
+    await notifProvider.setActiveUser('demo_user_101');
 
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(

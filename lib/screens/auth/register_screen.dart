@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../providers/split_provider.dart';
 import 'login_screen.dart';
 import 'setup_pin_screen.dart';
@@ -75,11 +76,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (!mounted) return;
     if (result.isSuccess) {
-      // Clear demo data and fetch fresh user data from database
+      // Clear all cached provider data so new account starts fresh with zero cross-account leakage
       final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
       final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+      final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
+
       expenseProvider.clearData();
       splitProvider.clearData();
+      notifProvider.clearData();
+      await notifProvider.setActiveUser(auth.currentUser?.id);
+
       await expenseProvider.fetchExpenses();
       await splitProvider.fetchGroupsAndData();
 

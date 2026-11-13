@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../providers/split_provider.dart';
 import '../main_navigation_screen.dart';
 import 'register_screen.dart';
@@ -43,8 +44,13 @@ class _LoginScreenState extends State<LoginScreen> {
       // Clear sample data and fetch actual data from database
       final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
       final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+      final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
+
       expenseProvider.clearData();
       splitProvider.clearData();
+      notifProvider.clearData();
+      await notifProvider.setActiveUser(auth.currentUser?.id);
+
       await expenseProvider.fetchExpenses();
       await splitProvider.fetchGroupsAndData();
 
@@ -73,12 +79,15 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final expenseProvider = Provider.of<ExpenseProvider>(context, listen: false);
     final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+    final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
 
     await auth.demoLogin();
 
     // Populate with demo living suite for offline testing
     expenseProvider.loadDemoData();
     splitProvider.loadDemoData();
+    notifProvider.clearData();
+    await notifProvider.setActiveUser('demo_user_101');
 
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(

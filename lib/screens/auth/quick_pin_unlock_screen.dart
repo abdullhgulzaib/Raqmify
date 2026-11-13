@@ -7,6 +7,9 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_icons.dart';
 import '../../core/services/biometric_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/expense_provider.dart';
+import '../../providers/notification_provider.dart';
+import '../../providers/split_provider.dart';
 import '../main_navigation_screen.dart';
 import 'login_screen.dart';
 
@@ -183,7 +186,15 @@ class _QuickPinUnlockScreenState extends State<QuickPinUnlockScreen> with Single
   }
 
   void _handleSwitchAccount() async {
+    final expProvider = Provider.of<ExpenseProvider>(context, listen: false);
+    final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+    final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
+
+    expProvider.clearData();
+    splitProvider.clearData();
+    notifProvider.clearData();
+    await notifProvider.setActiveUser(null);
     await auth.logout();
     if (!mounted) return;
     Navigator.pushReplacement(

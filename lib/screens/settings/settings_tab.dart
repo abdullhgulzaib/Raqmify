@@ -8,6 +8,7 @@ import '../../core/constants/app_icons.dart';
 import '../../core/utils/pdf_generator.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/expense_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../providers/split_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../auth/login_screen.dart';
@@ -489,6 +490,9 @@ class SettingsTab extends StatelessWidget {
                 onPressed: () async {
                   Provider.of<ExpenseProvider>(context, listen: false).clearData();
                   Provider.of<SplitProvider>(context, listen: false).clearData();
+                  final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
+                  notifProvider.clearData();
+                  await notifProvider.setActiveUser(null);
                   await authProvider.logout();
                   if (context.mounted) {
                     Navigator.pushAndRemoveUntil(

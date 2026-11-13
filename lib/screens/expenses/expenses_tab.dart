@@ -83,15 +83,22 @@ class _ExpensesTabState extends State<ExpensesTab> {
     await provider.deleteExpense(exp.id);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
         SnackBar(
           content: Text('Deleted "${exp.title}"'),
           backgroundColor: AppColors.deepEmerald,
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.horizontal,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
           action: SnackBarAction(
             label: 'Undo',
             textColor: AppColors.teal,
             onPressed: () {
+              messenger.hideCurrentSnackBar();
               provider.restoreExpense(exp);
             },
           ),
@@ -468,15 +475,22 @@ class _ExpensesTabState extends State<ExpensesTab> {
                               ),
                               onDismissed: (_) {
                                 expenseProvider.deleteExpense(exp.id);
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                final messenger = ScaffoldMessenger.of(context);
+                                messenger.clearSnackBars();
+                                messenger.showSnackBar(
                                   SnackBar(
                                     content: Text('Deleted "${exp.title}"'),
                                     backgroundColor: AppColors.deepEmerald,
-                                    duration: const Duration(seconds: 5),
+                                    duration: const Duration(seconds: 4),
+                                    behavior: SnackBarBehavior.floating,
+                                    dismissDirection: DismissDirection.horizontal,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                                     action: SnackBarAction(
                                       label: 'Undo',
                                       textColor: AppColors.teal,
                                       onPressed: () {
+                                        messenger.hideCurrentSnackBar();
                                         expenseProvider.restoreExpense(exp);
                                       },
                                     ),

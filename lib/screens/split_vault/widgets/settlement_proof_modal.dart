@@ -235,16 +235,23 @@ class SettlementProofModal {
                 );
                 Navigator.pop(ctx);
 
-                // U5: 5-second Undo SnackBar for settlement rejection
-                ScaffoldMessenger.of(context).showSnackBar(
+                // 4-second floating, dismissible Undo SnackBar for settlement rejection
+                final messenger = ScaffoldMessenger.of(context);
+                messenger.clearSnackBars();
+                messenger.showSnackBar(
                   SnackBar(
                     content: const Text('Payment marked as rejected.'),
                     backgroundColor: AppColors.errorRed,
-                    duration: const Duration(seconds: 5),
+                    duration: const Duration(seconds: 4),
+                    behavior: SnackBarBehavior.floating,
+                    dismissDirection: DismissDirection.horizontal,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                     action: SnackBarAction(
                       label: 'Undo',
                       textColor: Colors.white,
                       onPressed: () {
+                        messenger.hideCurrentSnackBar();
                         if (previousTid != null && previousMethod != null) {
                           Provider.of<SplitProvider>(context, listen: false).submitProof(
                             expenseId: expense.id,

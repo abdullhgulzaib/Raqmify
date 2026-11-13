@@ -7,6 +7,7 @@ import '../../../core/constants/app_icons.dart';
 import '../../../models/user_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/expense_provider.dart';
+import '../../../providers/notification_provider.dart';
 import '../../../providers/split_provider.dart';
 import '../../auth/login_screen.dart';
 import '../../auth/widgets/security_verification_modal.dart';
@@ -261,9 +262,15 @@ class _DashboardHeaderState extends State<DashboardHeader>
     );
 
     if (confirmed == true && context.mounted) {
-      Provider.of<ExpenseProvider>(context, listen: false).clearData();
-      Provider.of<SplitProvider>(context, listen: false).clearData();
+      final expProvider = Provider.of<ExpenseProvider>(context, listen: false);
+      final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+      final notifProvider = Provider.of<NotificationProvider>(context, listen: false);
       final auth = Provider.of<AuthProvider>(context, listen: false);
+
+      expProvider.clearData();
+      splitProvider.clearData();
+      notifProvider.clearData();
+      await notifProvider.setActiveUser(null);
       await auth.logout();
       if (context.mounted) {
         Navigator.pushAndRemoveUntil(
