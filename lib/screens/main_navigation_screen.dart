@@ -93,7 +93,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     setState(() => _currentIndex = index);
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    if (index == 3) {
+    if (index == 1) {
+      // Switched to Expenses tab: refresh personal expenses
+      if (auth.isAuthenticated && !auth.isDemoUser) {
+        Provider.of<ExpenseProvider>(context, listen: false).fetchExpenses();
+      }
+      _stopSplitVaultPolling();
+    } else if (index == 3) {
       // Switched to SplitVault tab: fetch immediately and start 30s polling
       if (auth.isAuthenticated && !auth.isDemoUser) {
         final splitProvider = Provider.of<SplitProvider>(context, listen: false);

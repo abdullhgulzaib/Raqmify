@@ -16,7 +16,41 @@ class TestMockAdapter implements HttpClientAdapter {
     dynamic requestStream,
     dynamic cancelFuture,
   ) async {
-    if (options.method == 'POST' && options.path.contains('/splitvault/expenses')) {
+    if (options.method == 'POST' && options.path.contains('/proof')) {
+      for (var exp in expenses) {
+        final splits = exp['splits'] as List<dynamic>? ?? [];
+        for (var s in splits) {
+          if (s is Map && options.path.contains(s['userId']?.toString() ?? '')) {
+            s['status'] = 'UnderReview';
+            s['proofTid'] = options.data?['transactionId'] ?? options.data?['proofTid'];
+          }
+        }
+      }
+      return ResponseBody.fromString(
+        jsonEncode({'message': 'Proof submitted successfully'}),
+        200,
+        headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      );
+    }
+
+    if (options.method == 'POST' && options.path.contains('/verify')) {
+      final isApprove = options.data?['action'] == 'APPROVE' || options.data?['approve'] == true;
+      for (var exp in expenses) {
+        final splits = exp['splits'] as List<dynamic>? ?? [];
+        for (var s in splits) {
+          if (s is Map && options.path.contains(s['userId']?.toString() ?? '')) {
+            s['status'] = isApprove ? 'Verified' : 'Unpaid';
+          }
+        }
+      }
+      return ResponseBody.fromString(
+        jsonEncode({'message': 'Proof verified successfully'}),
+        200,
+        headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      );
+    }
+
+    if (options.method == 'POST' && options.path.contains('/splitvault/expenses') && !options.path.contains('/splits/')) {
       final createdExp = {
         '_id': 'exp_test_${DateTime.now().millisecondsSinceEpoch}',
         'title': options.data?['title'] ?? 'Test Expense',

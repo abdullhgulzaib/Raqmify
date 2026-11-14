@@ -23,6 +23,8 @@ class ApiConstants {
   static const String createGroup = '/api/splitvault/groups';
   static const String joinGroup = '/api/splitvault/groups/join';
   static const String groupExpenses = '/api/splitvault/expenses';
+  static const String settlements = '/api/splitvault/settlements';
+  static const String nudge = '/api/splitvault/nudge';
 
   // Notifications
   static const String notifications = '/api/notifications';

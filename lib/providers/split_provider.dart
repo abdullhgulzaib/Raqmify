@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../core/network/app_failure.dart';
 import '../core/network/result.dart';
 import '../dev/demo_data.dart';
 import '../models/group_model.dart';
+import '../models/net_settlement_model.dart';
 import '../models/split_expense_model.dart';
 
 // Re-export PairwiseDebt from logic so screens import consistently
@@ -28,11 +30,20 @@ class SplitProvider extends ChangeNotifier {
 
   List<GroupModel> _groups = [];
   List<SplitExpenseModel> _groupExpenses = [];
+  List<NetSettlementModel> _netSettlements = [];
+  List<SettlementModel> _settlements = [];
+  List<SettlementModel> _pendingSettlementsToVerify = [];
+  List<SettlementModel> _pendingSettlementsSubmitted = [];
+  final Map<String, DateTime> _lastNudgeTimes = {};
   bool _isLoading = false;
   String? _errorMessage;
 
   List<GroupModel> get groups => _groups;
   List<SplitExpenseModel> get groupExpenses => _groupExpenses;
+  List<NetSettlementModel> get netSettlements => _netSettlements;
+  List<SettlementModel> get settlements => _settlements;
+  List<SettlementModel> get pendingSettlementsToVerify => _pendingSettlementsToVerify;
+  List<SettlementModel> get pendingSettlementsSubmitted => _pendingSettlementsSubmitted;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -43,11 +54,19 @@ class SplitProvider extends ChangeNotifier {
   SplitProvider({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient() {
     _groups = [];
     _groupExpenses = [];
+    _netSettlements = [];
+    _settlements = [];
+    _pendingSettlementsToVerify = [];
+    _pendingSettlementsSubmitted = [];
   }
 
   void clearData() {
     _groups = [];
     _groupExpenses = [];
+    _netSettlements = [];
+    _settlements = [];
+    _pendingSettlementsToVerify = [];
+    _pendingSettlementsSubmitted = [];
     _errorMessage = null;
     notifyListeners();
   }
@@ -129,6 +148,30 @@ class SplitProvider extends ChangeNotifier {
             .map((e) => SplitExpenseModel.fromJson(e as Map<String, dynamic>))
             .toList();
 
+        final rawNetSettlements = ((data['netSettlements'] ?? data['data']?['netSettlements']) as List<dynamic>? ?? []);
+        _netSettlements = rawNetSettlements
+            .whereType<Map<String, dynamic>>()
+            .map((s) => NetSettlementModel.fromJson(s))
+            .toList();
+
+        final rawSettlements = ((data['settlements'] ?? data['data']?['settlements']) as List<dynamic>? ?? []);
+        _settlements = rawSettlements
+            .whereType<Map<String, dynamic>>()
+            .map((s) => SettlementModel.fromJson(s))
+            .toList();
+
+        final rawPendingVerify = ((data['pendingSettlementsToVerify'] ?? data['data']?['pendingSettlementsToVerify']) as List<dynamic>? ?? []);
+        _pendingSettlementsToVerify = rawPendingVerify
+            .whereType<Map<String, dynamic>>()
+            .map((s) => SettlementModel.fromJson(s))
+            .toList();
+
+        final rawPendingSubmitted = ((data['pendingSettlementsSubmitted'] ?? data['data']?['pendingSettlementsSubmitted']) as List<dynamic>? ?? []);
+        _pendingSettlementsSubmitted = rawPendingSubmitted
+            .whereType<Map<String, dynamic>>()
+            .map((s) => SettlementModel.fromJson(s))
+            .toList();
+
         // Debug logging in debug mode only (D3)
         if (kDebugMode) {
           debugPrint(
@@ -198,131 +241,234 @@ class SplitProvider extends ChangeNotifier {
     ).otherBalances;
   }
 
-  // Submit Proof with Receipt Image (S5, F1)
+  // Submit Proof with Receipt Image (JSON contract)
   Future<Result<void>> submitProof({
     required String expenseId,
     required String userId,
     required String transactionId,
     required String paymentMethod,
     String? receiptImagePath,
+    String? imageUrl,
+    String? senderNote,
   }) async {
     _isLoading = true;
     _errorMessage = null;
-
-    // Optimistic local update (F1)
-    for (int i = 0; i < _groupExpenses.length; i++) {
-      if (_groupExpenses[i].id == expenseId) {
-        final updatedSplits = _groupExpenses[i].splits.map((s) {
-          if (s.userId == userId) {
-            return s.copyWith(
-              status: 'UnderReview',
-              proofTid: transactionId.trim(),
-              paymentMethod: paymentMethod,
-            );
-          }
-          return s;
-        }).toList();
-
-        _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
-        break;
-      }
-    }
-    _isLoading = false;
     notifyListeners();
 
     try {
-      dynamic postData;
-      if (receiptImagePath != null && File(receiptImagePath).existsSync()) {
-        final fileName = receiptImagePath.split(Platform.pathSeparator).last;
-        postData = FormData.fromMap({
-          'proofTid': transactionId.trim(),
-          'paymentMethod': paymentMethod,
-          'receipt': await MultipartFile.fromFile(
-            receiptImagePath,
-            filename: fileName,
-          ),
-        });
-      } else {
-        postData = {
-          'proofTid': transactionId.trim(),
-          'paymentMethod': paymentMethod,
-        };
+      String? finalImageUrl = imageUrl;
+      if (finalImageUrl == null && receiptImagePath != null && File(receiptImagePath).existsSync()) {
+        final bytes = await File(receiptImagePath).readAsBytes();
+        final ext = receiptImagePath.toLowerCase().endsWith('.png') ? 'png' : 'jpeg';
+        finalImageUrl = 'data:image/$ext;base64,${base64Encode(bytes)}';
       }
 
-      final res = await _apiClient.post(
+      final postData = {
+        'method': paymentMethod,
+        'paymentMethod': paymentMethod,
+        'transactionId': transactionId.trim(),
+        'proofTid': transactionId.trim(),
+        if (finalImageUrl != null && finalImageUrl.isNotEmpty) 'imageUrl': finalImageUrl,
+        if (senderNote != null && senderNote.isNotEmpty) 'senderNote': senderNote,
+      };
+
+      await _apiClient.post(
         '${ApiConstants.groupExpenses}/$expenseId/splits/$userId/proof',
         data: postData,
       );
 
-      String? receiptUrl;
-      if (res.data is Map && res.data['imageUrl'] != null) {
-        receiptUrl = res.data['imageUrl'].toString();
-      }
-
-      if (receiptUrl != null) {
-        for (int i = 0; i < _groupExpenses.length; i++) {
-          if (_groupExpenses[i].id == expenseId) {
-            final updatedSplits = _groupExpenses[i].splits.map((s) {
-              if (s.userId == userId) {
-                return s.copyWith(proofImageUrl: receiptUrl);
-              }
-              return s;
-            }).toList();
-            _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
-            notifyListeners();
-            break;
-          }
+      for (int i = 0; i < _groupExpenses.length; i++) {
+        if (_groupExpenses[i].id == expenseId) {
+          final updatedSplits = _groupExpenses[i].splits.map<SplitMemberShare>((s) {
+            if (s.userId == userId) {
+              return s.copyWith(
+                status: 'UnderReview',
+                proofTid: transactionId.trim(),
+                paymentMethod: paymentMethod,
+                proofImageUrl: finalImageUrl,
+              );
+            }
+            return s;
+          }).toList();
+          _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
+          break;
         }
       }
+
+      await fetchGroupsAndData(silent: true, currentUserId: userId);
       return const Success(null);
     } catch (e) {
       final failure = AppFailure.fromException(e);
       _errorMessage = failure.message;
       notifyListeners();
       return Failure(failure);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
-  // Verify Proof (Approve or Reject) (S5)
+  // Verify Proof (Approve or Reject with reason)
   Future<Result<void>> verifyProof({
     required String expenseId,
     required String userId,
     required bool approve,
+    String reason = '',
   }) async {
     _isLoading = true;
     _errorMessage = null;
-
-    final newStatus = approve ? 'Verified' : 'Unpaid';
-    for (int i = 0; i < _groupExpenses.length; i++) {
-      if (_groupExpenses[i].id == expenseId) {
-        final updatedSplits = _groupExpenses[i].splits.map((s) {
-          if (s.userId == userId) {
-            return s.copyWith(
-              status: newStatus,
-              proofTid: approve ? s.proofTid : null,
-            );
-          }
-          return s;
-        }).toList();
-
-        _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
-        break;
-      }
-    }
-    _isLoading = false;
     notifyListeners();
 
     try {
       await _apiClient.post(
         '${ApiConstants.groupExpenses}/$expenseId/splits/$userId/verify',
-        data: {'approve': approve, 'approved': approve},
+        data: {
+          'action': approve ? 'APPROVE' : 'REJECT',
+          'reason': reason,
+        },
       );
+
+      final newStatus = approve ? 'Verified' : 'Unpaid';
+      for (int i = 0; i < _groupExpenses.length; i++) {
+        if (_groupExpenses[i].id == expenseId) {
+          final updatedSplits = _groupExpenses[i].splits.map<SplitMemberShare>((s) {
+            if (s.userId == userId) {
+              return s.copyWith(
+                status: newStatus,
+                proofTid: approve ? s.proofTid : null,
+              );
+            }
+            return s;
+          }).toList();
+          _groupExpenses[i] = _groupExpenses[i].copyWith(splits: updatedSplits);
+          break;
+        }
+      }
+
+      await fetchGroupsAndData(silent: true, currentUserId: userId);
       return const Success(null);
     } catch (e) {
       final failure = AppFailure.fromException(e);
       _errorMessage = failure.message;
       notifyListeners();
       return Failure(failure);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Create One-Shot Net Balance Settlement
+  Future<Result<SettlementModel>> createSettlement({
+    required String toUserId,
+    String? groupId,
+    required double amount,
+    required String method,
+    required String transactionId,
+    String? imageUrl,
+    String? senderNote,
+    String? currentUserId,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final payload = {
+        'toUserId': toUserId,
+        if (groupId != null && groupId.isNotEmpty) 'groupId': groupId,
+        'amount': amount,
+        'method': method,
+        'transactionId': transactionId.trim(),
+        'proofTid': transactionId.trim(),
+        if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
+        if (senderNote != null && senderNote.isNotEmpty) 'senderNote': senderNote,
+        'paymentDate': DateTime.now().toIso8601String(),
+      };
+
+      final res = await _apiClient.post(
+        ApiConstants.settlements,
+        data: payload,
+      );
+
+      final rawData = res.data is Map ? res.data['settlement'] ?? res.data : <String, dynamic>{};
+      final settlement = SettlementModel.fromJson(Map<String, dynamic>.from(rawData as Map));
+
+      await fetchGroupsAndData(silent: true, currentUserId: currentUserId);
+      return Success(settlement);
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+      if (e is DioException && e.response?.statusCode == 409) {
+        await fetchGroupsAndData(silent: true, currentUserId: currentUserId);
+      }
+      notifyListeners();
+      return Failure(failure);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Verify or Reject Net Balance Settlement
+  Future<Result<void>> verifySettlement({
+    required String settlementId,
+    required bool approve,
+    String reason = '',
+    String? currentUserId,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _apiClient.post(
+        '${ApiConstants.settlements}/$settlementId/verify',
+        data: {
+          'action': approve ? 'APPROVE' : 'REJECT',
+          'reason': reason,
+        },
+      );
+
+      await fetchGroupsAndData(silent: true, currentUserId: currentUserId);
+      return const Success(null);
+    } catch (e) {
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+      notifyListeners();
+      return Failure(failure);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Send In-App Nudge Reminder (24-hour client debounce per debt)
+  Future<bool> sendNudge({
+    required String debtorId,
+    required double amount,
+    String? groupName,
+  }) async {
+    final key = '$debtorId-$amount';
+    final now = DateTime.now();
+    final lastTime = _lastNudgeTimes[key];
+    if (lastTime != null && now.difference(lastTime).inHours < 24) {
+      return false;
+    }
+
+    _lastNudgeTimes[key] = now;
+    try {
+      await _apiClient.post(
+        ApiConstants.nudge,
+        data: {
+          'debtorId': debtorId,
+          'amount': amount,
+          if (groupName != null && groupName.isNotEmpty) 'groupName': groupName,
+        },
+      );
+      return true;
+    } catch (_) {
+      return true;
     }
   }
 

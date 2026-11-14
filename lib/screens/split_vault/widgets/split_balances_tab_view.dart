@@ -1,11 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_icons.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../core/utils/phone_normalizer.dart';
 import '../../../core/widgets/app_empty_state.dart';
-import '../../../models/split_expense_model.dart';
 import '../../../providers/split_provider.dart';
 import 'settlement_proof_modal.dart';
 
@@ -26,25 +28,58 @@ class SplitBalancesTabView extends StatefulWidget {
 }
 
 class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
-  bool _aggregateAllGroups = false; // S8: Per-group default, optional aggregated
-
   Future<void> _sendWhatsAppReminder({
     required String debtorName,
+    required String debtorId,
     required double amount,
+    String rawPhone = '',
+    String groupName = '',
   }) async {
+    final phoneDigits = normalizePhoneToInternationalDigits(rawPhone);
+    final groupText = groupName.isNotEmpty ? ' for $groupName' : '';
     final message =
-        'Hi $debtorName, friendly reminder to settle Rs ${amount.toStringAsFixed(0)} on Raqmify. Track and settle on Raqmify: https://raqmify.app';
-    final url = 'https://wa.me/?text=${Uri.encodeComponent(message)}';
-    final uri = Uri.parse(url);
+        'Hi $debtorName, a friendly reminder to settle Rs ${amount.toStringAsFixed(2)}$groupText on Raqmify.';
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open WhatsApp.')),
-        );
-      }
+    // Call POST /api/splitvault/nudge (fire and forget)
+    unawaited(widget.splitProvider.sendNudge(
+      debtorId: debtorId,
+      amount: amount,
+      groupName: groupName,
+    ));
+
+    bool opened = false;
+
+    // (a) Try direct WhatsApp URI
+    try {
+      final directUri = Uri.parse(buildWhatsAppDirectUrl(phoneDigits, message));
+      opened = await launchUrl(directUri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+
+    // (b) Try web wa.me URL
+    if (!opened) {
+      try {
+        final webUri = Uri.parse(buildWhatsAppWebUrl(phoneDigits, message));
+        opened = await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+
+    // (c) Fallback: Copy message action
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not open WhatsApp.'),
+          action: SnackBarAction(
+            label: 'Copy message',
+            textColor: Colors.white,
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: message));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Reminder copied to clipboard.')),
+              );
+            },
+          ),
+        ),
+      );
     }
   }
 
@@ -55,25 +90,27 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
     final currentUserId = widget.currentUserId;
     final isMasked = widget.isMasked;
 
-    final debts = splitProvider.calculateNetBalances(
-      currentUserId,
-      aggregateAllGroups: _aggregateAllGroups,
-    );
+    // Server-computed net settlements filtered to current user
+    final allNetSettlements = splitProvider.netSettlements;
+    final userNetDebts = allNetSettlements
+        .where((s) => s.fromUserId == currentUserId || s.toUserId == currentUserId)
+        .toList();
 
-    final double amountYouOwe = debts
-        .where((d) => d.fromUserId == currentUserId)
-        .fold(0.0, (sum, d) => sum + d.netAmount.inRupees);
+    final double amountYouOwe = allNetSettlements
+        .where((s) => s.fromUserId == currentUserId)
+        .fold(0.0, (sum, s) => sum + s.amount);
 
-    final double amountYoureOwed = debts
-        .where((d) => d.toUserId == currentUserId)
-        .fold(0.0, (sum, d) => sum + d.netAmount.inRupees);
+    final double amountYoureOwed = allNetSettlements
+        .where((s) => s.toUserId == currentUserId)
+        .fold(0.0, (sum, s) => sum + s.amount);
 
-    final pendingVerifications = splitProvider.getPendingVerificationsForCreditor(currentUserId);
+    final pendingSettlementsToVerify = splitProvider.pendingSettlementsToVerify;
 
     return RefreshIndicator(
-      onRefresh: () => splitProvider.fetchGroupsAndData(),
+      onRefresh: () => splitProvider.fetchGroupsAndData(currentUserId: currentUserId),
       color: AppColors.deepEmerald,
       child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -109,7 +146,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                   context: context,
                   title: 'Amount You Owe',
                   value: CurrencyFormatter.format(amountYouOwe, isMasked: isMasked),
-                  subtitle: '${debts.where((d) => d.fromUserId == currentUserId).length} net debts due',
+                  subtitle: '${allNetSettlements.where((s) => s.fromUserId == currentUserId).length} net debts due',
                   icon: Icons.arrow_outward_rounded,
                   iconColor: const Color(0xFFD4AF6B),
                   isDarkCard: true,
@@ -118,7 +155,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                   context: context,
                   title: "Amount You're Owed",
                   value: CurrencyFormatter.format(amountYoureOwed, isMasked: isMasked),
-                  subtitle: '${pendingVerifications.length} proofs to approve',
+                  subtitle: '${pendingSettlementsToVerify.length} settlements to review',
                   icon: Icons.south_west_rounded,
                   iconColor: const Color(0xFF16C79A),
                   isDarkCard: false,
@@ -127,8 +164,8 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
             ),
             const SizedBox(height: 20),
 
-            // Pending Proof Verifications Section
-            if (pendingVerifications.isNotEmpty) ...[
+            // Pending Net Settlement Proofs for Creditor
+            if (pendingSettlementsToVerify.isNotEmpty) ...[
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -146,7 +183,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                         const Icon(Icons.pending_actions_rounded, color: AppColors.pendingOrange, size: 20),
                         const SizedBox(width: 8),
                         Text(
-                          'Pending Settlement Proofs (${pendingVerifications.length})',
+                          'Pending Settlements to Review (${pendingSettlementsToVerify.length})',
                           style: GoogleFonts.outfit(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -156,7 +193,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    ...pendingVerifications.map((item) {
+                    ...pendingSettlementsToVerify.map((settlement) {
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(
@@ -167,7 +204,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '${item.share.name} • Rs ${item.share.amount.toStringAsFixed(0)}',
+                                    '${settlement.fromUserName} • Rs ${settlement.amount.toStringAsFixed(2)}',
                                     style: GoogleFonts.outfit(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
@@ -175,7 +212,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                     ),
                                   ),
                                   Text(
-                                    '${item.expense.title} • TID: ${item.share.proofTid ?? "Provided"}',
+                                    '${settlement.proof?.method ?? "Easypaisa"} • TID: ${settlement.proof?.transactionId.isNotEmpty == true ? settlement.proof!.transactionId : "Attached"}',
                                     style: GoogleFonts.outfit(fontSize: 11, color: AppColors.textMuted),
                                   ),
                                 ],
@@ -189,10 +226,10 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                               onPressed: () {
-                                SettlementProofModal.showReviewProof(
+                                SettlementProofModal.showReviewNetSettlement(
                                   context: context,
-                                  expense: item.expense,
-                                  share: item.share,
+                                  settlement: settlement,
+                                  currentUserId: currentUserId,
                                 );
                               },
                               child: const Text('Review', style: TextStyle(fontSize: 12)),
@@ -207,58 +244,25 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
               const SizedBox(height: 20),
             ],
 
-            // Simplified Net Balances Header with Aggregate Toggle (S8)
+            // Simplified Net Balances Header
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.balance_rounded, color: AppColors.deepEmerald, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Simplified Net Balances',
-                      style: GoogleFonts.outfit(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white : AppColors.darkInk,
-                      ),
-                    ),
-                  ],
-                ),
-                // Toggle between Per-Group and Aggregated (S8)
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      _aggregateAllGroups = !_aggregateAllGroups;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _aggregateAllGroups
-                          ? AppColors.deepEmerald
-                          : (isDark ? const Color(0xFF1E2826) : AppColors.lightEmerald),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _aggregateAllGroups ? 'Global Net' : 'Per Group',
-                      style: GoogleFonts.outfit(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: _aggregateAllGroups
-                            ? Colors.white
-                            : (isDark ? const Color(0xFF68D391) : AppColors.deepEmerald),
-                      ),
-                    ),
+                const Icon(Icons.balance_rounded, color: AppColors.deepEmerald, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Simplified Net Balances',
+                  style: GoogleFonts.outfit(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : AppColors.darkInk,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
 
-            // Net Debts List
-            if (debts.isEmpty)
+            // Net Debts List from Server
+            if (userNetDebts.isEmpty)
               const AppEmptyState(
                 icon: Icons.check_circle_outline_rounded,
                 title: 'You are all settled',
@@ -268,12 +272,12 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
               ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: debts.length,
+                itemCount: userNetDebts.length,
                 separatorBuilder: (context, index) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {
-                  final debt = debts[i];
-                  final isDebtor = debt.fromUserId == currentUserId;
-                  final isCreditor = debt.toUserId == currentUserId;
+                  final net = userNetDebts[i];
+                  final isDebtor = net.fromUserId == currentUserId;
+                  final isCreditor = net.toUserId == currentUserId;
 
                   final cardBg = isDark
                       ? (isDebtor ? const Color(0xFF282318) : (isCreditor ? const Color(0xFF162B24) : const Color(0xFF1E2826)))
@@ -296,15 +300,14 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                       children: [
                         Row(
                           children: [
-                            // Avatar initial
                             CircleAvatar(
                               radius: 18,
                               backgroundColor: isDebtor
                                   ? AppColors.pendingOrange.withValues(alpha: 0.2)
                                   : AppColors.successGreen.withValues(alpha: 0.2),
                               child: Text(
-                                (isDebtor ? debt.toUserName : debt.fromUserName).isNotEmpty
-                                    ? (isDebtor ? debt.toUserName : debt.fromUserName)[0].toUpperCase()
+                                (isDebtor ? net.toUser : net.fromUser).isNotEmpty
+                                    ? (isDebtor ? net.toUser : net.fromUser)[0].toUpperCase()
                                     : '?',
                                 style: GoogleFonts.outfit(
                                   fontWeight: FontWeight.w700,
@@ -314,7 +317,6 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                             ),
                             const SizedBox(width: 12),
 
-                            // Debt summary
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,7 +329,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                       ),
                                       children: [
                                         TextSpan(
-                                          text: isDebtor ? 'You' : debt.fromUserName,
+                                          text: isDebtor ? 'You' : net.fromUser,
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             color: isDebtor ? AppColors.pendingOrange : (isDark ? Colors.white : AppColors.darkInk),
@@ -335,7 +337,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                         ),
                                         const TextSpan(text: ' owe '),
                                         TextSpan(
-                                          text: isCreditor ? 'You' : debt.toUserName,
+                                          text: isCreditor ? 'You' : net.toUser,
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             color: isCreditor ? AppColors.successGreen : (isDark ? Colors.white : AppColors.darkInk),
@@ -352,9 +354,8 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                               ),
                             ),
 
-                            // Amount
                             Text(
-                              CurrencyFormatter.format(debt.netAmount.inRupees, isMasked: isMasked),
+                              CurrencyFormatter.format(net.amount, isMasked: isMasked),
                               style: GoogleFonts.outfit(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -364,7 +365,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                           ],
                         ),
 
-                        // Action Buttons Row (F1 Proof submission, F5 WhatsApp reminder)
+                        // Action Buttons Row
                         if (isDebtor || isCreditor) ...[
                           const SizedBox(height: 10),
                           const Divider(height: 1),
@@ -372,9 +373,9 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              // Under review indicator or Submit Proof button
+                              // Debtor Actions
                               if (isDebtor) ...[
-                                if (debt.hasPendingReview)
+                                if (net.hasPendingSettlement)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
@@ -387,7 +388,7 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                         const Icon(AppIcons.time, size: 14, color: AppColors.pendingOrange),
                                         const SizedBox(width: 4),
                                         Text(
-                                          'Proof Submitted',
+                                          'Waiting for ${net.toUser} to verify',
                                           style: GoogleFonts.outfit(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w700,
@@ -398,64 +399,74 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                     ),
                                   )
                                 else
-                                  TextButton.icon(
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.deepEmerald,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
                                     onPressed: () {
-                                      SplitExpenseModel? targetExp;
-                                      if (debt.relatedExpenseIds.isNotEmpty) {
-                                        targetExp = splitProvider.groupExpenses
-                                            .where((e) => debt.relatedExpenseIds.contains(e.id))
-                                            .firstOrNull;
-                                      }
-                                      targetExp ??= splitProvider.groupExpenses
-                                          .where((e) => e.splits.any((s) => s.userId == currentUserId && s.status != 'Settled'))
-                                          .firstOrNull;
-                                      targetExp ??= splitProvider.groupExpenses.firstOrNull;
-
-                                      final expId = targetExp?.id ?? 'exp_${DateTime.now().millisecondsSinceEpoch}';
-                                      final expTitle = targetExp?.title ?? 'Settlement Payment';
-
-                                      SettlementProofModal.showSubmitProof(
+                                      SettlementProofModal.showSubmitNetSettlementProof(
                                         context: context,
-                                        expenseId: expId,
-                                        expenseTitle: expTitle,
-                                        creditorName: debt.toUserName,
-                                        amount: debt.netAmount.inRupees,
-                                        userId: currentUserId,
+                                        toUserId: net.toUserId,
+                                        creditorName: net.toUser,
+                                        amount: net.amount,
+                                        currentUserId: currentUserId,
                                       );
                                     },
-                                    icon: const Icon(AppIcons.receipt, size: 15, color: AppColors.deepEmerald),
+                                    icon: const Icon(AppIcons.receipt, size: 15, color: Colors.white),
                                     label: Text(
-                                      'Submit Proof',
+                                      'Settle Balance',
                                       style: GoogleFonts.outfit(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: AppColors.deepEmerald,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
                               ],
 
-                              // WhatsApp Reminder for Creditor (F5)
+                              // Creditor Actions (Review & WhatsApp Reminder strictly for creditor)
                               if (isCreditor) ...[
-                                if (debt.hasPendingReview) ...[
-                                  TextButton.icon(
+                                if (net.hasPendingSettlement) ...[
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.deepEmerald,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
                                     onPressed: () {
-                                      final item = pendingVerifications.where((p) => p.share.userId == debt.fromUserId).firstOrNull;
-                                      if (item != null) {
-                                        SettlementProofModal.showReviewProof(
+                                      final pendingItem = pendingSettlementsToVerify
+                                          .where((s) => s.fromUser == net.fromUserId)
+                                          .firstOrNull;
+                                      if (pendingItem != null) {
+                                        SettlementProofModal.showReviewNetSettlement(
                                           context: context,
-                                          expense: item.expense,
-                                          share: item.share,
+                                          settlement: pendingItem,
+                                          currentUserId: currentUserId,
                                         );
+                                      } else if (net.pendingSettlementId != null) {
+                                        final matched = splitProvider.settlements
+                                            .where((s) => s.id == net.pendingSettlementId)
+                                            .firstOrNull;
+                                        if (matched != null) {
+                                          SettlementProofModal.showReviewNetSettlement(
+                                            context: context,
+                                            settlement: matched,
+                                            currentUserId: currentUserId,
+                                          );
+                                        }
                                       }
                                     },
-                                    icon: const Icon(Icons.rate_review_rounded, size: 15, color: AppColors.deepEmerald),
+                                    icon: const Icon(Icons.rate_review_rounded, size: 15, color: Colors.white),
                                     label: Text(
                                       'Review Proof',
                                       style: GoogleFonts.outfit(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: AppColors.deepEmerald,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
@@ -463,8 +474,10 @@ class _SplitBalancesTabViewState extends State<SplitBalancesTabView> {
                                 ],
                                 TextButton.icon(
                                   onPressed: () => _sendWhatsAppReminder(
-                                    debtorName: debt.fromUserName,
-                                    amount: debt.netAmount.inRupees,
+                                    debtorName: net.fromUser,
+                                    debtorId: net.fromUserId,
+                                    amount: net.amount,
+                                    rawPhone: net.recipientPaymentDetails.phone,
                                   ),
                                   icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15, color: Color(0xFF25D366)),
                                   label: Text(
