@@ -24,7 +24,7 @@ class PendingProofItem {
 }
 
 class SplitProvider extends ChangeNotifier {
-  final ApiClient _apiClient = ApiClient();
+  final ApiClient _apiClient;
 
   List<GroupModel> _groups = [];
   List<SplitExpenseModel> _groupExpenses = [];
@@ -40,7 +40,7 @@ class SplitProvider extends ChangeNotifier {
       _groupExpenses.fold(0.0, (sum, e) => sum + e.totalAmount);
   int get activeGroupsCount => _groups.length;
 
-  SplitProvider() {
+  SplitProvider({ApiClient? apiClient}) : _apiClient = apiClient ?? ApiClient() {
     _groups = [];
     _groupExpenses = [];
   }
@@ -102,31 +102,53 @@ class SplitProvider extends ChangeNotifier {
   }
 
   // Fetch full SplitVault summary & groups from API
-  Future<void> fetchGroupsAndData() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
+  Future<void> fetchGroupsAndData({bool silent = false, String? currentUserId}) async {
+    if (!silent) {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+    }
 
     try {
       final res = await _apiClient.get(ApiConstants.splitVaultSummary);
       if (res.data != null) {
-        final data = res.data is Map<String, dynamic> ? res.data : {'groups': [], 'expenses': []};
+        final data = res.data is Map<String, dynamic> ? res.data : <String, dynamic>{};
 
-        final rawGroups = (data['groups'] as List<dynamic>? ?? []);
+        final rawGroups = ((data['groups'] ?? data['data']?['groups']) as List<dynamic>? ?? []);
         _groups = rawGroups
             .map((g) => GroupModel.fromJson(g as Map<String, dynamic>))
             .toList();
 
-        final rawExpenses = (data['expenses'] as List<dynamic>? ?? []);
+        // Support both 'expenses' and 'allExpenses' keys from backend response
+        final rawExpenses = ((data['expenses'] ??
+                data['allExpenses'] ??
+                data['data']?['expenses'] ??
+                data['data']?['allExpenses']) as List<dynamic>? ??
+            []);
         _groupExpenses = rawExpenses
             .map((e) => SplitExpenseModel.fromJson(e as Map<String, dynamic>))
             .toList();
+
+        // Debug logging in debug mode only (D3)
+        if (kDebugMode) {
+          debugPrint(
+            '[SplitProvider.fetchGroupsAndData] Loaded ${_groups.length} groups, ${_groupExpenses.length} expenses. CurrentUser: ${currentUserId ?? "unknown"}',
+          );
+          for (final exp in _groupExpenses) {
+            final splitUserIds = exp.splits.map((s) => s.userId).join(', ');
+            debugPrint(
+              '  -> Expense: id=${exp.id}, title="${exp.title}", total=${exp.totalAmount}, paidByUserId=${exp.paidByUserId}, splitUserIds=[$splitUserIds]',
+            );
+          }
+        }
       }
     } catch (e) {
       final failure = AppFailure.fromException(e);
       _errorMessage = failure.message;
     } finally {
-      _isLoading = false;
+      if (!silent) {
+        _isLoading = false;
+      }
       notifyListeners();
     }
   }
@@ -252,13 +274,13 @@ class SplitProvider extends ChangeNotifier {
           }
         }
       }
+      return const Success(null);
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SplitProvider.submitProof] Network sync failed, retained locally: $e');
-      }
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+      notifyListeners();
+      return Failure(failure);
     }
-
-    return const Success(null);
   }
 
   // Verify Proof (Approve or Reject) (S5)
@@ -295,13 +317,13 @@ class SplitProvider extends ChangeNotifier {
         '${ApiConstants.groupExpenses}/$expenseId/splits/$userId/verify',
         data: {'approve': approve, 'approved': approve},
       );
+      return const Success(null);
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SplitProvider.verifyProof] Network sync failed, retained locally: $e');
-      }
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+      notifyListeners();
+      return Failure(failure);
     }
-
-    return const Success(null);
   }
 
   // Create Group (S5, S6)
@@ -401,30 +423,6 @@ class SplitProvider extends ChangeNotifier {
       notifyListeners();
       return const Failure(failure);
     } catch (e) {
-      final idx = _groups.indexWhere((g) => g.id == groupId);
-      if (idx != -1) {
-        final group = _groups[idx];
-        final cleanEmail = email.trim().toLowerCase();
-        if (group.members.any((m) => m.email.toLowerCase() == cleanEmail)) {
-          _isLoading = false;
-          final failure = AppFailure(message: 'User with email $cleanEmail is already in this group.');
-          _errorMessage = failure.message;
-          notifyListeners();
-          return Failure(failure);
-        }
-        final newMember = GroupMember(
-          userId: 'user_${DateTime.now().millisecondsSinceEpoch}',
-          name: cleanEmail.split('@').first,
-          email: cleanEmail,
-          role: 'Member',
-          joinedAt: DateTime.now(),
-        );
-        final updatedGroup = group.copyWith(members: [...group.members, newMember]);
-        _groups[idx] = updatedGroup;
-        _isLoading = false;
-        notifyListeners();
-        return Success(updatedGroup);
-      }
       _isLoading = false;
       final failure = AppFailure.fromException(e);
       _errorMessage = failure.message;
@@ -459,17 +457,6 @@ class SplitProvider extends ChangeNotifier {
       notifyListeners();
       return const Failure(failure);
     } catch (e) {
-      final idx = _groups.indexWhere((g) => g.id == groupId);
-      if (idx != -1) {
-        final group = _groups[idx];
-        final updatedGroup = group.copyWith(
-          members: group.members.where((m) => m.userId != memberId).toList(),
-        );
-        _groups[idx] = updatedGroup;
-        _isLoading = false;
-        notifyListeners();
-        return Success(updatedGroup);
-      }
       _isLoading = false;
       final failure = AppFailure.fromException(e);
       _errorMessage = failure.message;
@@ -584,7 +571,7 @@ class SplitProvider extends ChangeNotifier {
       splits: localSplits,
     );
 
-    // Optimistically insert locally so state, net calculations, and activity reflect immediately
+    // Optimistically insert locally so state and UI reflect immediately
     _groupExpenses.insert(0, localExpense);
     _isLoading = false;
     notifyListeners();
@@ -639,18 +626,31 @@ class SplitProvider extends ChangeNotifier {
           final idx = _groupExpenses.indexWhere((e) => e.id == tempId);
           if (idx != -1) {
             _groupExpenses[idx] = updated;
-            notifyListeners();
+          } else {
+            _groupExpenses.insert(0, updated);
           }
+          notifyListeners();
+
+          // Authoritative reconcile with server
+          await fetchGroupsAndData(silent: true, currentUserId: paidByUserId);
           return Success(updated);
         }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SplitProvider.createSplitExpense] Sync offline/failed, retained locally: $e');
-      }
-    }
 
-    return Success(localExpense);
+      // If response is not recognizable as an expense, rollback temporary insertion
+      _groupExpenses.removeWhere((e) => e.id == tempId);
+      const failure = AppFailure(message: 'Server did not confirm this expense. Please try again.');
+      _errorMessage = failure.message;
+      notifyListeners();
+      return const Failure(failure);
+    } catch (e) {
+      // Rollback temporary optimistic expense on exception
+      _groupExpenses.removeWhere((e) => e.id == tempId);
+      final failure = AppFailure.fromException(e);
+      _errorMessage = failure.message;
+      notifyListeners();
+      return Failure(failure);
+    }
   }
 
   // Delete Split Expense (S5)

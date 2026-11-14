@@ -1,15 +1,78 @@
+import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:raqmify/core/network/api_client.dart';
 import 'package:raqmify/core/services/retention_service.dart';
 import 'package:raqmify/models/expense_model.dart';
 import 'package:raqmify/providers/split_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class TestMockAdapter implements HttpClientAdapter {
+  final List<Map<String, dynamic>> expenses = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    dynamic requestStream,
+    dynamic cancelFuture,
+  ) async {
+    if (options.method == 'POST' && options.path.contains('/splitvault/expenses')) {
+      final createdExp = {
+        '_id': 'exp_test_${DateTime.now().millisecondsSinceEpoch}',
+        'title': options.data?['title'] ?? 'Test Expense',
+        'totalAmount': options.data?['totalAmount'] ?? 2000.0,
+        'category': options.data?['category'] ?? 'Food',
+        'paidBy': options.data?['paidBy'] ?? 'user_rana',
+        'paidByName': options.data?['paidByName'] ?? 'Rana Abdullah',
+        'groupId': options.data?['groupId'] ?? 'grp_1',
+        'groupName': options.data?['groupName'] ?? 'Hostel 304',
+        'splitType': 'Equal',
+        'splits': options.data?['splits'] ?? [],
+      };
+      expenses.insert(0, createdExp);
+      return ResponseBody.fromString(
+        jsonEncode({'expense': createdExp}),
+        201,
+        headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      );
+    }
+
+    if (options.method == 'GET' && options.path.contains('/splitvault/summary')) {
+      return ResponseBody.fromString(
+        jsonEncode({'groups': [], 'allExpenses': expenses}),
+        200,
+        headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+      );
+    }
+
+    return ResponseBody.fromString(
+      jsonEncode({'success': true}),
+      200,
+      headers: {Headers.contentTypeHeader: [Headers.jsonContentType]},
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Split Vault Expense & Proof Tests', () {
+    late ApiClient apiClient;
+
+    setUp(() {
+      apiClient = ApiClient();
+      apiClient.dio.httpClientAdapter = TestMockAdapter();
+    });
+
+    tearDown(() {
+      apiClient.dio.httpClientAdapter = HttpClientAdapter();
+    });
+
     test('createSplitExpense optimistically adds expense and computes net balances', () async {
-      final provider = SplitProvider();
+      final provider = SplitProvider(apiClient: apiClient);
       provider.clearData();
 
       const currentUserId = 'user_rana';
@@ -46,7 +109,7 @@ void main() {
     });
 
     test('submitProof and verifyProof update split share status and adjust debt', () async {
-      final provider = SplitProvider();
+      final provider = SplitProvider(apiClient: apiClient);
       provider.clearData();
 
       const currentUserId = 'user_rana';

@@ -1,3 +1,5 @@
+import '../core/utils/id_extractor.dart';
+
 class GroupMember {
   final String userId;
   final String name;
@@ -30,10 +32,16 @@ class GroupMember {
   }
 
   factory GroupMember.fromJson(Map<String, dynamic> json) {
+    final resolvedUserId = extractId(json['user']).isNotEmpty
+        ? extractId(json['user'])
+        : (extractId(json['userId']).isNotEmpty
+            ? extractId(json['userId'])
+            : extractId(json['_id']));
+
     return GroupMember(
-      userId: json['user'] is String ? json['user'] : (json['user']?['_id'] ?? ''),
-      name: json['name'] ?? '',
-      email: json['email'] ?? '',
+      userId: resolvedUserId,
+      name: (json['name'] ?? (json['user'] is Map ? json['user']['name'] : ''))?.toString() ?? '',
+      email: (json['email'] ?? (json['user'] is Map ? json['user']['email'] : ''))?.toString() ?? '',
       role: json['role'] ?? 'Member',
       joinedAt: json['joinedAt'] != null ? DateTime.tryParse(json['joinedAt']) : null,
     );
@@ -114,12 +122,12 @@ class GroupModel {
         .toList();
 
     return GroupModel(
-      id: json['_id'] ?? json['id'] ?? '',
+      id: extractId(json['_id']).isNotEmpty ? extractId(json['_id']) : extractId(json['id']),
       name: json['name'] ?? 'Shared Group',
       description: json['description'] ?? '',
       category: json['category'] ?? 'Hostel',
       icon: json['icon'] ?? 'home',
-      createdBy: json['createdBy'] is String ? json['createdBy'] : (json['createdBy']?['_id'] ?? ''),
+      createdBy: extractId(json['createdBy']),
       inviteCode: json['inviteCode'] ?? '',
       members: parsedMembers,
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) ?? DateTime.now() : DateTime.now(),

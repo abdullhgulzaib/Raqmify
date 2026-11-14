@@ -5,7 +5,12 @@ import '../services/secure_storage_service.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
-  factory ApiClient() => _instance;
+  factory ApiClient({Dio? dio}) {
+    if (dio != null) {
+      return ApiClient._withDio(dio);
+    }
+    return _instance;
+  }
 
   late final Dio dio;
   String? _cachedToken;
@@ -21,6 +26,8 @@ class ApiClient {
   void clearAuthToken() {
     _cachedToken = null;
   }
+
+  ApiClient._withDio(this.dio);
 
   ApiClient._internal() {
     dio = Dio(
@@ -39,7 +46,11 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          _cachedToken ??= await SecureStorageService().getAuthToken();
+          try {
+            _cachedToken ??= await SecureStorageService().getAuthToken();
+          } catch (_) {
+            // SecureStorage may not be available in unit test environments
+          }
           if (_cachedToken != null && _cachedToken!.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $_cachedToken';
           }

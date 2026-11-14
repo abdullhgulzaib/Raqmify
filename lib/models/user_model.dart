@@ -1,3 +1,5 @@
+import '../core/utils/id_extractor.dart';
+
 class UserModel {
   final String id;
   final String name;
@@ -23,8 +25,9 @@ class UserModel {
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     final payment = json['paymentDetails'] as Map<String, dynamic>?;
+    final resolvedId = extractId(json['_id']).isNotEmpty ? extractId(json['_id']) : extractId(json['id']);
     return UserModel(
-      id: json['_id'] ?? json['id'] ?? '',
+      id: resolvedId,
       name: json['name'] ?? '',
       email: json['email'] ?? '',
       avatar: json['avatar'] ?? '',

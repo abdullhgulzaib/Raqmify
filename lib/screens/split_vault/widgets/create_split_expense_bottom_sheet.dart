@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -78,15 +79,26 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
     _participants = [];
 
     final splitProvider = Provider.of<SplitProvider>(context, listen: false);
-    final currentUserId = auth.currentUser?.id ?? 'demo_user_101';
-    final currentUserName = auth.currentUser?.name ?? 'You';
+    final user = auth.currentUser;
+    if (user == null || user.id.isEmpty) {
+      if (kReleaseMode) {
+        // Block action in release builds if user is not authenticated
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to create split expenses.')),
+        );
+        Navigator.pop(context);
+        return;
+      }
+    }
+    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+    final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'You';
 
     // Payer (Current User)
     _participants.add(
       ParticipantSplitItem(
         userId: currentUserId,
         name: '$currentUserName (You)',
-        email: auth.currentUser?.email ?? '',
+        email: user?.email ?? '',
         isCurrentUser: true,
         selected: true,
         amount: 0.0,
@@ -109,6 +121,10 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
       );
 
       for (final m in grp.members) {
+        if (m.userId.isEmpty) {
+          debugPrint('[CreateSplit] Skipping member ${m.name} because userId is empty');
+          continue;
+        }
         if (m.userId != currentUserId && m.name.isNotEmpty) {
           _participants.add(
             ParticipantSplitItem(
@@ -330,13 +346,34 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
 
     final splitProvider = Provider.of<SplitProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final currentUserId = authProvider.currentUser?.id ?? 'demo_user_101';
-    final currentUserName = authProvider.currentUser?.name ?? 'You';
+    final user = authProvider.currentUser;
+    if (user == null || user.id.isEmpty) {
+      if (kReleaseMode) {
+        setState(() => _errorMessage = 'Please sign in to create a split expense.');
+        return;
+      }
+    }
+    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+    final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'You';
 
     String groupName = 'Split Group';
     if (_selectedGroupId != null) {
       final grp = splitProvider.groups.where((g) => g.id == _selectedGroupId).firstOrNull;
       if (grp != null) groupName = grp.name;
+    }
+
+    // Verify all active participants have valid non-empty user IDs
+    for (final p in activeParticipants) {
+      if (p.userId.isEmpty) {
+        setState(() => _errorMessage = 'Participant "${p.name}" has an unresolved ID. Please refresh the group.');
+        return;
+      }
+      assert(() {
+        if (p.userId.isEmpty) {
+          debugPrint('[CreateSplit] Participant ${p.name} has empty userId!');
+        }
+        return true;
+      }());
     }
 
     final payload = activeParticipants.map((p) {
@@ -374,7 +411,8 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
           ),
         );
       } else {
-        setState(() => _errorMessage = 'Failed to create split expense. Try again.');
+        final err = (result as Failure).failure.message;
+        setState(() => _errorMessage = err.isNotEmpty ? err : 'Failed to create split expense. Try again.');
       }
     }
   }
@@ -630,7 +668,7 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                 ),
                 const SizedBox(height: 18),
 
-                // Participants Header & Add Roommate Button
+                // Participants Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -642,18 +680,19 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                         color: textHeading,
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: _showAddRoommateDialog,
-                      icon: const Icon(Icons.person_add_alt_1_rounded, size: 16, color: AppColors.deepEmerald),
-                      label: Text(
-                        '+ Add Roommate',
-                        style: GoogleFonts.outfit(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.deepEmerald,
+                    if (_selectedGroupId == null)
+                      TextButton.icon(
+                        onPressed: _showAddRoommateDialog,
+                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 16, color: AppColors.deepEmerald),
+                        label: Text(
+                          '+ Add Person',
+                          style: GoogleFonts.outfit(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.deepEmerald,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 8),

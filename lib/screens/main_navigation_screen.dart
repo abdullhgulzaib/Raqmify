@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -21,24 +22,91 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
+  Timer? _splitVaultPollTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = Provider.of<AuthProvider>(context, listen: false);
       if (auth.isAuthenticated && !auth.isDemoUser) {
         Provider.of<ExpenseProvider>(context, listen: false).fetchExpenses();
-        Provider.of<SplitProvider>(context, listen: false).fetchGroupsAndData();
+        Provider.of<SplitProvider>(context, listen: false).fetchGroupsAndData(
+          currentUserId: auth.currentUser?.id,
+        );
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopSplitVaultPolling();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      if (auth.isAuthenticated && !auth.isDemoUser) {
+        Provider.of<SplitProvider>(context, listen: false).fetchGroupsAndData(
+          silent: true,
+          currentUserId: auth.currentUser?.id,
+        );
+      }
+      if (_currentIndex == 3) {
+        _startSplitVaultPolling();
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _stopSplitVaultPolling();
+    }
+  }
+
+  void _startSplitVaultPolling() {
+    _stopSplitVaultPolling();
+    _splitVaultPollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+      if (auth.isAuthenticated && !auth.isDemoUser && !splitProvider.isLoading) {
+        splitProvider.fetchGroupsAndData(
+          silent: true,
+          currentUserId: auth.currentUser?.id,
+        );
+      }
+    });
+  }
+
+  void _stopSplitVaultPolling() {
+    _splitVaultPollTimer?.cancel();
+    _splitVaultPollTimer = null;
   }
 
   void _onTabTapped(int index) {
     HapticFeedback.selectionClick();
     setState(() => _currentIndex = index);
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (index == 3) {
+      // Switched to SplitVault tab: fetch immediately and start 30s polling
+      if (auth.isAuthenticated && !auth.isDemoUser) {
+        final splitProvider = Provider.of<SplitProvider>(context, listen: false);
+        if (!splitProvider.isLoading) {
+          splitProvider.fetchGroupsAndData(
+            silent: true,
+            currentUserId: auth.currentUser?.id,
+          );
+        }
+      }
+      _startSplitVaultPolling();
+    } else {
+      _stopSplitVaultPolling();
+    }
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -219,12 +220,23 @@ class _SplitVaultTabState extends State<SplitVaultTab> with SingleTickerProvider
                   final name = nameController.text.trim();
                   if (name.isNotEmpty) {
                     final auth = Provider.of<AuthProvider>(context, listen: false);
+                    final user = auth.currentUser;
+                    if (user == null || user.id.isEmpty) {
+                      if (kReleaseMode) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please sign in to create a group.')),
+                        );
+                        return;
+                      }
+                    }
+                    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+                    final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'Living Group';
                     await Provider.of<SplitProvider>(context, listen: false).createGroup(
                       name: name,
                       description: descController.text.trim(),
                       category: category,
-                      currentUserId: auth.currentUser?.id ?? 'demo_user_101',
-                      currentUserName: auth.currentUser?.name ?? 'Rana Abdullah',
+                      currentUserId: currentUserId,
+                      currentUserName: currentUserName,
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                   }

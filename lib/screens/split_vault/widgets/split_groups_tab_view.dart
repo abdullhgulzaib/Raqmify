@@ -36,9 +36,13 @@ class SplitGroupsTabView extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final splitProvider = Provider.of<SplitProvider>(context);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
+    return RefreshIndicator(
+      onRefresh: () => splitProvider.fetchGroupsAndData(),
+      color: AppColors.deepEmerald,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Action Buttons: Join & Create
@@ -217,6 +221,7 @@ class SplitGroupsTabView extends StatelessWidget {
             ),
         ],
       ),
-    );
+    ),
+  );
   }
 }

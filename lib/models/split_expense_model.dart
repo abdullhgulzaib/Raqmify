@@ -1,3 +1,5 @@
+import '../core/utils/id_extractor.dart';
+
 class SplitMemberShare {
   final String userId;
   final String name;
@@ -48,15 +50,9 @@ class SplitMemberShare {
   factory SplitMemberShare.fromJson(Map<String, dynamic> json) {
     final proof = json['proof'] as Map<String, dynamic>?;
 
-    String resolvedUserId = '';
-    if (json['userId'] != null && json['userId'].toString().isNotEmpty) {
-      resolvedUserId = json['userId'].toString();
-    } else if (json['user'] != null) {
-      if (json['user'] is String) {
-        resolvedUserId = json['user'];
-      } else if (json['user'] is Map) {
-        resolvedUserId = json['user']['_id']?.toString() ?? json['user']['id']?.toString() ?? '';
-      }
+    String resolvedUserId = extractId(json['userId']);
+    if (resolvedUserId.isEmpty) {
+      resolvedUserId = extractId(json['user']);
     }
 
     return SplitMemberShare(
@@ -188,28 +184,15 @@ class SplitExpenseModel {
       parsedDate = DateTime.now();
     }
 
-    String uid = '';
-    if (json['paidByUserId'] != null && json['paidByUserId'].toString().isNotEmpty) {
-      uid = json['paidByUserId'].toString();
-    } else if (json['paidBy'] != null) {
-      if (json['paidBy'] is String) {
-        uid = json['paidBy'];
-      } else if (json['paidBy'] is Map) {
-        uid = json['paidBy']['_id']?.toString() ?? json['paidBy']['id']?.toString() ?? '';
-      }
+    String uid = extractId(json['paidByUserId']);
+    if (uid.isEmpty) {
+      uid = extractId(json['paidBy']);
     }
 
-    String gid = '';
-    if (json['groupId'] != null) {
-      if (json['groupId'] is String) {
-        gid = json['groupId'];
-      } else if (json['groupId'] is Map) {
-        gid = json['groupId']['_id']?.toString() ?? json['groupId']['id']?.toString() ?? '';
-      }
-    }
+    String gid = extractId(json['groupId']);
 
     return SplitExpenseModel(
-      id: json['_id'] ?? json['id'] ?? '',
+      id: extractId(json['_id']).isNotEmpty ? extractId(json['_id']) : extractId(json['id']),
       title: json['title'] ?? 'Shared Expense',
       totalAmount: (json['totalAmount'] is num) ? (json['totalAmount'] as num).toDouble() : 0.0,
       category: json['category'] ?? 'Food',

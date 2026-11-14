@@ -95,9 +95,13 @@ class _SplitActivityTabViewState extends State<SplitActivityTabView> {
     final groups = splitProvider.groups;
     final expenses = splitProvider.getExpensesForGroup(_selectedGroupId);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
+    return RefreshIndicator(
+      onRefresh: () => splitProvider.fetchGroupsAndData(),
+      color: AppColors.deepEmerald,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Filter Chips
@@ -451,6 +455,7 @@ class _SplitActivityTabViewState extends State<SplitActivityTabView> {
             ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
