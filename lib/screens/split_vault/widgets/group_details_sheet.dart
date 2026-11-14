@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../models/group_model.dart';
+import '../../../providers/expense_provider.dart';
 import '../../../providers/split_provider.dart';
 import '../../auth/widgets/security_verification_modal.dart';
 
@@ -186,6 +188,10 @@ class _GroupDetailsSheetState extends State<GroupDetailsSheet> {
     if (!mounted) return;
 
     if (result.isSuccess) {
+      if (mounted) {
+        // Refresh ExpenseProvider so the personal Expense list and Dashboard sync immediately
+        unawaited(Provider.of<ExpenseProvider>(context, listen: false).fetchExpenses());
+      }
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

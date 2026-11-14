@@ -98,11 +98,26 @@ class _SplitVaultTabState extends State<SplitVaultTab> with SingleTickerProvider
                 final code = codeController.text.trim().toUpperCase();
                 if (code.isNotEmpty) {
                   final auth = Provider.of<AuthProvider>(context, listen: false);
+                  final user = auth.currentUser;
+                  if (user == null || user.id.isEmpty) {
+                    if (kReleaseMode || !auth.isDemoUser) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please sign in to join a group.')),
+                      );
+                      return;
+                    }
+                  }
+                  final currentUserId = (user?.id.isNotEmpty == true)
+                      ? user!.id
+                      : (kDebugMode ? 'demo_user_101' : '');
+                  final currentUserName = user?.name ?? 'User';
+                  final currentUserEmail = user?.email ?? '';
+
                   final result = await Provider.of<SplitProvider>(context, listen: false).joinGroupByInviteCode(
                     inviteCode: code,
-                    userId: auth.currentUser?.id ?? 'demo_user_101',
-                    userName: auth.currentUser?.name ?? 'Rana Abdullah',
-                    userEmail: auth.currentUser?.email ?? 'rana@hostel.edu.pk',
+                    userId: currentUserId,
+                    userName: currentUserName,
+                    userEmail: currentUserEmail,
                   );
                   final success = result is Success;
                   if (ctx.mounted) Navigator.pop(ctx);
@@ -229,7 +244,9 @@ class _SplitVaultTabState extends State<SplitVaultTab> with SingleTickerProvider
                         return;
                       }
                     }
-                    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+                    final currentUserId = (user?.id.isNotEmpty == true)
+                        ? user!.id
+                        : (kDebugMode && auth.isDemoUser ? 'demo_user_101' : '');
                     final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'Living Group';
                     await Provider.of<SplitProvider>(context, listen: false).createGroup(
                       name: name,
@@ -256,7 +273,8 @@ class _SplitVaultTabState extends State<SplitVaultTab> with SingleTickerProvider
     final authProvider = Provider.of<AuthProvider>(context);
     final splitProvider = Provider.of<SplitProvider>(context);
 
-    final currentUserId = authProvider.currentUser?.id ?? 'demo_user_101';
+    final currentUserId = authProvider.currentUser?.id ??
+        (kDebugMode && authProvider.isDemoUser ? 'demo_user_101' : '');
     final isMasked = authProvider.isPrivacyMasked;
 
     return Scaffold(
@@ -324,16 +342,6 @@ class _SplitVaultTabState extends State<SplitVaultTab> with SingleTickerProvider
             onCreateExpense: () => _showCreateSplitExpenseSheet(),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateSplitExpenseSheet(),
-        backgroundColor: AppColors.deepEmerald,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.call_split_rounded),
-        label: Text(
-          'Split Expense',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-        ),
       ),
     );
   }

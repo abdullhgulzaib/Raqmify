@@ -13,6 +13,7 @@ import 'dashboard/widgets/add_expense_bottom_sheet.dart';
 import 'expenses/expenses_tab.dart';
 import 'analytics/analytics_tab.dart';
 import 'split_vault/split_vault_tab.dart';
+import 'split_vault/widgets/create_split_expense_bottom_sheet.dart';
 import 'settings/settings_tab.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -182,10 +183,34 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   Widget? _buildFloatingActionButton() {
-    // For SplitVaultTab (index 3), it renders its own dedicated "Split Expense" FAB with split icon.
-    // Hide the generic + button on this page to prevent duplicate overlapping buttons.
+    // For SplitVaultTab (index 3), show dedicated single "Split Expense" extended FAB with split icon.
+    // There is no separate or overlapping + button.
     if (_currentIndex == 3) {
-      return null;
+      return FloatingActionButton.extended(
+        onPressed: () async {
+          await HapticFeedback.lightImpact();
+          if (!mounted) return;
+          final authProvider = Provider.of<AuthProvider>(context, listen: false);
+          if (authProvider.isPrivacyMasked && authProvider.hasPin) {
+            final verified = await SecurityVerificationModal.verify(
+              context,
+              title: 'Authorize Split Bill',
+              subtitle: 'Scan fingerprint or enter PIN to continue',
+            );
+            if (!verified || !mounted) return;
+            await authProvider.togglePrivacyMask(force: true);
+          }
+          if (!mounted) return;
+          await CreateSplitExpenseBottomSheet.show(context);
+        },
+        backgroundColor: AppColors.deepEmerald,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.call_split_rounded),
+        label: Text(
+          'Split Expense',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+        ),
+      );
     }
     return GestureDetector(
       onTap: () async {

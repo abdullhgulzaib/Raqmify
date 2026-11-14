@@ -90,7 +90,9 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
         return;
       }
     }
-    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+    final currentUserId = (user?.id.isNotEmpty == true)
+        ? user!.id
+        : (kDebugMode && auth.isDemoUser ? 'demo_user_101' : '');
     final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'You';
 
     // Payer (Current User)
@@ -353,7 +355,9 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
         return;
       }
     }
-    final currentUserId = user?.id.isNotEmpty == true ? user!.id : 'demo_user_101';
+    final currentUserId = (user?.id.isNotEmpty == true)
+        ? user!.id
+        : (kDebugMode && authProvider.isDemoUser ? 'demo_user_101' : '');
     final currentUserName = user?.name.isNotEmpty == true ? user!.name : 'You';
 
     String groupName = 'Split Group';
@@ -739,6 +743,70 @@ class _CreateSplitExpenseBottomSheetState extends State<CreateSplitExpenseBottom
                   },
                 ),
                 const SizedBox(height: 16),
+
+                // Live Reconciliation Status Pill (Only shown when total > 0)
+                if (total > 0) ...[
+                  Builder(
+                    builder: (context) {
+                      final allocatedSum = activeParticipants.fold<double>(0.0, (sum, p) => sum + p.amount);
+                      final diff = total - allocatedSum;
+                      final isMatched = diff.abs() <= 1.5;
+                      final isRemaining = diff > 1.5;
+
+                      final pillBg = isMatched
+                          ? AppColors.teal.withValues(alpha: 0.12)
+                          : isRemaining
+                              ? const Color(0xFFFFF7ED)
+                              : const Color(0xFFFEF2F2);
+                      final pillBorder = isMatched
+                          ? AppColors.teal.withValues(alpha: 0.3)
+                          : isRemaining
+                              ? const Color(0xFFFDBA74)
+                              : const Color(0xFFFCA5A5);
+                      final pillColor = isMatched
+                          ? AppColors.deepEmerald
+                          : isRemaining
+                              ? const Color(0xFFC2410C)
+                              : const Color(0xFFB91C1C);
+                      final pillIcon = isMatched
+                          ? Icons.check_circle_outline_rounded
+                          : isRemaining
+                              ? Icons.info_outline_rounded
+                              : Icons.warning_amber_rounded;
+                      final pillText = isMatched
+                          ? 'Allocated: Rs ${allocatedSum.toStringAsFixed(0)} (100% matched)'
+                          : isRemaining
+                              ? 'Allocated: Rs ${allocatedSum.toStringAsFixed(0)} of Rs ${total.toStringAsFixed(0)} (Rs ${diff.abs().toStringAsFixed(0)} remaining)'
+                              : 'Allocated: Rs ${allocatedSum.toStringAsFixed(0)} of Rs ${total.toStringAsFixed(0)} (Rs ${diff.abs().toStringAsFixed(0)} over-allocated)';
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: pillBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: pillBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(pillIcon, size: 18, color: pillColor),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                pillText,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: pillColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // Error message if any
                 if (_errorMessage != null)

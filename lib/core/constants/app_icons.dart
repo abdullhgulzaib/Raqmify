@@ -6,7 +6,7 @@ class AppIcons {
   // Navigation
   static const IconData dashboard = Icons.grid_view_rounded;
   static const IconData expenses = Icons.receipt_long_rounded;
-  static const IconData splitVault = Icons.group_work_rounded;
+  static const IconData splitVault = Icons.call_split_rounded;
   static const IconData analytics = Icons.donut_large_rounded;
   static const IconData settings = Icons.settings_rounded;
 

@@ -1,3 +1,5 @@
+import '../core/utils/id_extractor.dart';
+
 class ExpenseModel {
   final String id;
   final String title;
@@ -8,6 +10,8 @@ class ExpenseModel {
   final String notes;
   final String status;
   final String? userId;
+  final String? groupId;
+  final String? splitExpenseId;
   final String syncStatus; // synced, pending, failed (S5)
 
   ExpenseModel({
@@ -20,6 +24,8 @@ class ExpenseModel {
     this.notes = '',
     this.status = 'Completed',
     this.userId,
+    this.groupId,
+    this.splitExpenseId,
     this.syncStatus = 'synced',
   });
 
@@ -33,6 +39,8 @@ class ExpenseModel {
     String? notes,
     String? status,
     String? userId,
+    String? groupId,
+    String? splitExpenseId,
     String? syncStatus,
   }) {
     return ExpenseModel(
@@ -45,6 +53,8 @@ class ExpenseModel {
       notes: notes ?? this.notes,
       status: status ?? this.status,
       userId: userId ?? this.userId,
+      groupId: groupId ?? this.groupId,
+      splitExpenseId: splitExpenseId ?? this.splitExpenseId,
       syncStatus: syncStatus ?? this.syncStatus,
     );
   }
@@ -60,7 +70,7 @@ class ExpenseModel {
     }
 
     return ExpenseModel(
-      id: json['_id'] ?? json['id'] ?? '',
+      id: extractId(json['_id'] ?? json['id']),
       title: json['title'] ?? 'Expense',
       amount: (json['amount'] is num) ? (json['amount'] as num).toDouble() : 0.0,
       category: json['category'] ?? 'General',
@@ -68,7 +78,9 @@ class ExpenseModel {
       paymentMethod: json['paymentMethod'] ?? 'Cash',
       notes: json['notes'] ?? '',
       status: json['status'] ?? 'Completed',
-      userId: json['userId'] is String ? json['userId'] : (json['userId']?['_id'] ?? ''),
+      userId: extractId(json['userId']),
+      groupId: extractId(json['groupId']),
+      splitExpenseId: extractId(json['splitExpenseId']),
       syncStatus: json['syncStatus'] ?? 'synced',
     );
   }
@@ -83,6 +95,9 @@ class ExpenseModel {
       'paymentMethod': paymentMethod,
       'notes': notes,
       'status': status,
+      'userId': userId,
+      'groupId': groupId,
+      'splitExpenseId': splitExpenseId,
       'syncStatus': syncStatus,
     };
   }

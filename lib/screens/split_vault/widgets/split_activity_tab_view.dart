@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_icons.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_empty_state.dart';
 import '../../../models/split_expense_model.dart';
+import '../../../providers/expense_provider.dart';
 import '../../../providers/split_provider.dart';
 import '../../auth/widgets/security_verification_modal.dart';
 import 'settlement_proof_modal.dart';
@@ -64,6 +67,9 @@ class _SplitActivityTabViewState extends State<SplitActivityTabView> {
     await provider.deleteSplitExpense(expense.id);
 
     if (mounted) {
+      // Refresh personal expenses list and dashboard
+      unawaited(Provider.of<ExpenseProvider>(context, listen: false).fetchExpenses());
+
       final messenger = ScaffoldMessenger.of(context);
       messenger.clearSnackBars();
       messenger.showSnackBar(
